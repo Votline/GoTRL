@@ -10,27 +10,32 @@ import (
 const vertexShaderSource = `
 #version 410 core
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 aTexCoord;
+layout (location = 1) in vec2 aTex;
+
+uniform vec2 offset;
+uniform vec2 scale;
 
 out vec2 TexCoord;
 
-void main()
-{
-    gl_Position = vec4(aPos, 1.0);
-		TexCoord = aTexCoord;
+void main() {
+	vec3 scaledPos = vec3(aPos.xy * scale, aPos.z);
+	vec3 finalPos = scaledPos + vec3(offset, 0.0);
+
+	gl_Position = vec4(finalPos, 1.0);
+	TexCoord = aTex;
 }` + "\x00"
 
 const fragmentShaderSource = `
 #version 410 core
-out vec4 FragColor;
 in vec2 TexCoord;
+out vec4 FragColor;
 
+uniform sampler2D tex;
 uniform vec4 color;
-uniform sampler2D uTex;
 
-void main()
-{
-    FragColor = texture(uTex, TexCoord) * color;
+void main() {
+	vec4 texColor = texture(tex, TexCoord);
+	FragColor = texColor * color;
 }` + "\x00"
 
 func attachShaders(pg uint32) []uint32 {

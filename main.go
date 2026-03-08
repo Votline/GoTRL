@@ -27,12 +27,27 @@ func main() {
 			redOpen, redClose)
 		return
 	}
-	mode := os.Args[1]
-	call := os.Args[2]
-	data := os.Args[3]
+	inpMode := os.Args[1]
+	appMode := os.Args[2]
+	call := os.Args[3]
+	data := os.Args[4]
+
+	var wg sync.WaitGroup
+	com := make(chan string, 100)
+	if appMode == "ui" {
+		wg.Go(func() {
+			sendAi(inpMode, appMode, call, data, com)
+		})
+		uiStart(com)
+	} else {
+		sendAi(inpMode, appMode, call, data, com)
+	}
+}
+
+func sendAi(inpMode, appMode, call, data string, com chan string) {
 	toLan := "английский"
 
-	if mode == "file" {
+	if inpMode == "file" {
 		d, err := os.ReadFile(data)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%sRead file error.\nPath:%s\nErr:%s%s",
@@ -45,15 +60,11 @@ func main() {
 		toLan = "русский"
 	}
 
-	var wg sync.WaitGroup
-	if mode == "ui" {
-		wg.Go(uiStart)
-	}
-
 	promt := fmt.Sprintf("Ты — профессиональный переводчик. Твоя задача: перевести следующий текст на %s. Выводи ТОЛЬКО перевод, без лишних слов, без вступлений, без объяснений. Текст для перевода: {%s}", toLan, data)
 
 	command := fmt.Sprintf("%s \"%s\"", call, promt)
 	cmd := exec.Command("bash", "-c", command)
+	cmd.Stderr = os.Stderr
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -61,15 +72,26 @@ func main() {
 			redOpen, command, err.Error(), redClose)
 		return
 	}
-	cmd.Start()
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "%sStart command error.\nCommand:%s\nErr:%s%s",
+			redOpen, command, err.Error(), redClose)
+		return
+	}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		fmt.Print(scanner.Text())
+	if appMode != "ui" {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			fmt.Print(scanner.Text())
+		}
+	} else {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			com <- scanner.Text()
+		}
 	}
 
 	cmd.Wait()
-	wg.Wait()
+	com <- "quit"
 	fmt.Println()
 }
 
@@ -86,7 +108,7 @@ func init() {
 	runtime.LockOSThread()
 }
 
-func uiStart() {
+func uiStart(com chan string) {
 	const op = "main.uiStart"
 
 	if err := glfw.Init(); err != nil {
@@ -117,10 +139,24 @@ func uiStart() {
 	glfw.SwapInterval(1)
 	glfw.WaitEventsTimeout(0.1)
 
-	pg := render.Setup()
+	pg, unfrs := render.Setup()
 	defer gl.DeleteProgram(pg)
 
-	view := ui.CreateHomeView(pg)
+	view := ui.CreateHomeView(pg, unfrs)
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			select {
+			case msg := <-com:
+				if msg != "quit" {
+					view.Update(msg)
+				} else {
+					return
+				}
+			}
+		}
+	})
 
 	gl.ClearColor(0.0, 0.0, 0.0, 0.7)
 	for !win.ShouldClose() {
