@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	winW = 250
-	winH = 100
+	winW = 400
+	winH = 250
 )
 
 func PrimaryWindow() (*glfw.Window, error) {

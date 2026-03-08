@@ -14,7 +14,7 @@ const fontSize = 25
 
 const fontPath = "assets/NotoSans-Regular.ttf"
 
-func CreateImage(txt string) *image.RGBA {
+func CreateImage(lines []string) *image.RGBA {
 	fontBytes, err := ioutil.ReadFile(fontPath)
 	if err != nil {
 		log.Fatalln("Read ttf file error. \nErr: ", err)
@@ -27,9 +27,7 @@ func CreateImage(txt string) *image.RGBA {
 
 	drawer := freetype.NewContext()
 
-	fontWidth := int(float64(fontSize) * float64(len(txt)) * 0.6)
-	fontHeight := fontSize + 10
-	img := image.NewRGBA(image.Rect(0, 0, fontWidth, fontHeight))
+	img := image.NewRGBA(image.Rect(0, 0, 410, 240))
 
 	drawer.SetClip(img.Bounds())
 	drawer.SetDPI(72)
@@ -37,12 +35,19 @@ func CreateImage(txt string) *image.RGBA {
 	drawer.SetFontSize(fontSize)
 	drawer.SetDst(img)
 	drawer.SetSrc(image.NewUniform(color.White))
-	drawer.SetHinting(font.HintingFull)
+	drawer.SetHinting(font.HintingNone)
 
-	pt := freetype.Pt(10, fontSize+5)
-	_, err = drawer.DrawString(txt, pt)
-	if err != nil {
-		log.Fatalln("Failed to draw string. \nErr: ", err)
+	currentY := fontSize + 5
+	for _, line := range lines {
+		pt := freetype.Pt(10, currentY)
+		_, err = drawer.DrawString(line, pt)
+		if err != nil {
+			log.Fatalln("Failed to draw string. \nErr: ", err)
+		}
+		currentY += fontSize + 10
+		if currentY > 250 {
+			break
+		}
 	}
 
 	return img
