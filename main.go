@@ -142,7 +142,7 @@ func uiStart(com chan string) {
 	pg, unfrs := render.Setup()
 	defer gl.DeleteProgram(pg)
 
-	view := ui.CreateHomeView(pg, unfrs)
+	view := ui.CreateHomeView(win, pg, unfrs)
 
 	var wg sync.WaitGroup
 	wg.Go(func() {

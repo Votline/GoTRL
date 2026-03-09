@@ -8,6 +8,7 @@ import (
 	"gotrl/internal/render"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
 type HomeView struct {
@@ -23,11 +24,11 @@ type HomeView struct {
 const (
 	orangeOpen  = "\033[33m"
 	orangeClose = "\033[0m"
-	maxSymbols  = 28
-	maxLines    = 8
+	maxSymbols  = 20
+	maxLines    = 7
 )
 
-func CreateHomeView(pg uint32, unfrs map[string]int32) *HomeView {
+func CreateHomeView(win *glfw.Window, pg uint32, unfrs map[string]int32) *HomeView {
 	// x, y, z, u, v
 	quad := []float32{
 		-1.0, -1.0, 0.0, 0.0, 1.0, // down-left
@@ -40,7 +41,23 @@ func CreateHomeView(pg uint32, unfrs map[string]int32) *HomeView {
 	}
 	vao := render.Canvas(quad)
 
-	return &HomeView{pg: pg, img: nil, vao: vao, uniforms: unfrs}
+	view := &HomeView{pg: pg, img: nil, vao: vao, uniforms: unfrs}
+
+	win.SetScrollCallback(func(w *glfw.Window, xoff float64, yoff float64) {
+		if yoff > 0 {
+			view.ScrollUp()
+		} else {
+			view.ScrollDown()
+		}
+	})
+
+	win.SetKeyCallback(func(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
+		if action == glfw.Press && key == glfw.KeySpace {
+			view.ScrollDown()
+		}
+	})
+
+	return view
 }
 
 func (hv *HomeView) Render() {
@@ -67,22 +84,56 @@ func (hv *HomeView) Update(msg string) {
 	newLines := splitMsg(msg)
 	if len(hv.lines) > 0 {
 		lastIdx := len(hv.lines) - 1
-		if len(hv.lines[lastIdx]) < maxSymbols {
-			toAp, rem := improveLast(len(hv.lines[lastIdx]), newLines)
+		if len([]rune(hv.lines[lastIdx])) < maxSymbols {
+			toAp, rem := improveLast(len([]rune(hv.lines[lastIdx])), newLines)
 			hv.lines[lastIdx] += toAp
 			newLines[0] = rem
 		}
-	} else {
-		hv.lines = newLines
 	}
 
-	start := 0
-	if len(hv.lines) > 8 {
-		start = len(hv.lines) - 8
+	for _, line := range newLines {
+		r := []rune(line)
+		if len(r) > 0 {
+			hv.lines = append(hv.lines, line)
+		}
 	}
-	visibleLines := hv.lines[start:]
 
-	hv.img = font.CreateImage(visibleLines)
+	hv.refreshImage()
+}
+
+func (hv *HomeView) refreshImage() {
+	start := hv.scrollOffset
+
+	if start > len(hv.lines)-maxLines {
+		start = len(hv.lines) - maxLines
+	}
+	if start < 0 {
+		start = 0
+	}
+
+	end := start + maxLines
+	if end > len(hv.lines) {
+		end = len(hv.lines)
+	}
+
+	hv.img = font.CreateImage(hv.lines[start:end])
+}
+
+func (hv *HomeView) ScrollUp() {
+	hv.mu.Lock()
+	defer hv.mu.Unlock()
+	hv.scrollOffset--
+	hv.refreshImage()
+}
+
+func (hv *HomeView) ScrollDown() {
+	hv.mu.Lock()
+	defer hv.mu.Unlock()
+	hv.scrollOffset++
+	if hv.scrollOffset < 0 {
+		hv.scrollOffset = 0
+	}
+	hv.refreshImage()
 }
 
 func splitMsg(msg string) []string {
@@ -94,10 +145,7 @@ func splitMsg(msg string) []string {
 
 	res := make([]string, 0, maxLines)
 	for i := 0; i < len(runes); i += maxSymbols {
-		end := i + 28
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(i+maxSymbols, len(runes))
 		res = append(res, string(runes[i:end]))
 	}
 
@@ -109,14 +157,15 @@ func improveLast(lastLen int, newLines []string) (toAppend string, remainingFirs
 		return "", ""
 	}
 
+	runes := []rune(newLines[0])
 	remained := maxSymbols - lastLen
 
-	if len(newLines[0]) < remained {
-		return newLines[0], ""
+	if len(runes) < remained {
+		return string(runes), ""
 	}
 
-	toAppend = newLines[0][:remained]
-	remainingFirstLine = newLines[0][remained:]
+	toAppend = string(runes[:remained])
+	remainingFirstLine = string(runes[remained:])
 
 	return toAppend, remainingFirstLine
 }
