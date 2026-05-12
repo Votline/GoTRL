@@ -1,5 +1,6 @@
 package main
 
+/*
 import (
 	"bufio"
 	"fmt"
@@ -14,36 +15,196 @@ import (
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
+)*/
+
+import (
+	"fmt"
+	"os"
+	"slices"
+	"unsafe"
+
+	"gotrl/internal/parser"
+
+	gurlf "github.com/Votline/Gurlf"
+	gscan "github.com/Votline/Gurlf/pkg/scanner"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-const (
-	redOpen  = "\033[31m"
-	redClose = "\033[0m"
-)
+const helpMsg = `
+Supported offline AIs.
 
-func main() {
-	if len(os.Args) < 3 {
-		fmt.Fprintf(os.Stderr, "%sUsage: './trl <image/text/file> <ui/cli> <command_for_call_ai> <data>'%s\n",
-			redOpen, redClose)
-		return
-	}
-	inpMode := os.Args[1]
-	appMode := os.Args[2]
-	call := os.Args[3]
-	data := os.Args[4]
+Usage (choose your way):
+    1. From file:   gotrl <config_path> <source> <args>
+    2. From string: gotrl "[config]...[/config]" <source> <args>
+    3. From flags:  gotrl -it=<type> -ot=<type> -trl=<url> <source> <args>
 
-	var wg sync.WaitGroup
-	com := make(chan string, 100)
-	if appMode == "ui" {
-		wg.Go(func() {
-			sendAi(inpMode, appMode, call, data, com)
+Settings (Flags):
+    -it    Input Type:  'text' (default), 'file', 'image', 'stream'
+    -ot    Output Type: 'cli' (default), 'ui', 'audio'
+    -trl   Translate:   URL for translation AI
+    -stt   STT:         URL for Speech-to-Text AI
+    -tts   TTS:         URL for Text-to-Speech AI
+
+Source:
+    <text>              Plain text to translate
+    <file_path>         Path to file (if input type is 'file')
+
+Args:
+    '-d' or '--debug'   Enable debug mode
+
+Examples:
+    gotrl ./cfg.gurlf "Hello world"
+    gotrl -it=file -ot=audio ./notes.txt
+    gotrl "[config]...[/config]" "Check this"
+
+Config fields (case sensitive):
+	InputType
+	OutputType
+	TranslationURL
+	SpeechToTextURL
+	TextToSpeechURL
+`
+
+func parseArgs(args []string) (*parser.UserData, error) {
+	const op = "main.parseArgs"
+
+	ud := parser.UserData{}
+
+	for _, arg := range args {
+		argByte := unsafe.Slice(unsafe.StringData(arg), len(arg))
+		parser.RangeByByte(argByte, ' ', func(key, val []byte) {
+			keyStr := unsafe.String(unsafe.SliceData(key), len(key))
+			valStr := unsafe.String(unsafe.SliceData(val), len(val))
+			switch keyStr {
+			case "-it", "--inputType":
+				ud.InpType = valStr
+			case "-ot", "--outputType":
+				ud.OutType = valStr
+			case "-trl", "--translationURL":
+				ud.TrlURL = valStr
+			case "-stt", "--speechToTextURL":
+				ud.SpttURL = valStr
+			case "-tts", "--textToSpeechURL":
+				ud.TtsURL = valStr
+			}
 		})
-		uiStart(com)
-	} else {
-		sendAi(inpMode, appMode, call, data, com)
 	}
+
+	if ud.InpType == "" || ud.OutType == "" || ud.TrlURL == "" || ud.SpttURL == "" || ud.TtsURL == "" {
+		return nil, fmt.Errorf("%s: invalid args", op)
+	}
+
+	return &ud, nil
 }
 
+func handleCfgPath(args []string) (*parser.UserData, bool, error) {
+	const op = "main.handleCfgPath"
+
+	dbg := slices.Contains(args, "-d") || slices.Contains(args, "--debug")
+
+	if len(args) >= 5 {
+		ud, err := parseArgs(args)
+		if err != nil {
+			return nil, dbg, fmt.Errorf("%s: parse args: %w", op, err)
+		}
+		return ud, dbg, nil
+	}
+
+	var gData []gscan.Data
+	var err error
+	arg := args[0]
+
+	if _, err := os.Stat(arg); err == nil {
+		gData, err = gurlf.ScanFile(arg)
+		if err != nil {
+			return nil, dbg, fmt.Errorf("%s: scan file: %w", op, err)
+		}
+	} else if os.IsNotExist(err) {
+		argBytes := unsafe.Slice(unsafe.StringData(arg), len(arg))
+		gData, err = gurlf.Scan(argBytes)
+		if err != nil {
+			return nil, dbg, fmt.Errorf("%s: scan string: %w", op, err)
+		}
+	}
+
+	ud, err := parser.Parse(gData)
+	if err != nil {
+		return nil, dbg, fmt.Errorf("%s: parse: %w", op, err)
+	}
+	return ud, dbg, nil
+}
+
+func initLog(dbg bool) *zap.Logger {
+	cfg := zap.NewDevelopmentConfig()
+	cfg.Encoding = "console"
+	cfg.EncoderConfig.TimeKey = ""
+	cfg.DisableStacktrace = true
+	cfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	cfg.EncoderConfig.ConsoleSeparator = " | "
+	cfg.Level.SetLevel(zap.ErrorLevel)
+
+	if dbg {
+		cfg.Level.SetLevel(zap.DebugLevel)
+	}
+	log, _ := cfg.Build()
+
+	return log
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Printf("Invalid args.\n%s", helpMsg)
+		return
+	}
+	if os.Args[1] == "help" || os.Args[1] == "h" || os.Args[1] == "-h" || os.Args[1] == "--help" {
+		fmt.Printf("%s", helpMsg)
+		return
+	}
+
+	args := os.Args[1:]
+	ud, dbg, err := handleCfgPath(args)
+	if err != nil {
+		fmt.Printf("Invalid args. %s\n", err.Error())
+		return
+	}
+
+	log := initLog(dbg)
+	defer log.Sync()
+
+	log.Debug("Args",
+		zap.Strings("args", args),
+		zap.Any("user_data", ud))
+}
+
+/*
+	   	if len(os.Args) < 3 {
+	   		fmt.Fprintf(os.Stderr, "%sUsage: './trl <image/text/file> <ui/cli> <command_for_call_ai> <data>'%s\n",
+	   			redOpen, redClose)
+	   		return
+	   	}
+
+	   inpMode := os.Args[1]
+	   appMode := os.Args[2]
+	   call := os.Args[3]
+	   data := os.Args[4]
+
+	   var wg sync.WaitGroup
+	   com := make(chan string, 100)
+
+	   	if appMode == "ui" {
+	   		wg.Go(func() {
+	   			sendAi(inpMode, appMode, call, data, com)
+	   		})
+	   		uiStart(com)
+	   	} else {
+
+	   		sendAi(inpMode, appMode, call, data, com)
+	   	}
+
+}
+/*
+/*
 func sendAi(inpMode, appMode, call, data string, com chan string) {
 	toLan := "английский"
 
@@ -167,4 +328,4 @@ func uiStart(com chan string) {
 		glfw.PollEvents()
 		win.SwapBuffers()
 	}
-}
+}*/

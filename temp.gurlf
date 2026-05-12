@@ -1,0 +1,8 @@
+[gotrl]
+InputType:text
+OutputType:{ENVIRONMENT key=OutputType from=os}
+TranslationURL:http://localhost:8081
+SpeechToTextURL:http://localhost8082
+TextToSpeechURL:http://localhost:8083
+[\gotrl]
+
