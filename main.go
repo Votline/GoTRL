@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sync"
 	"unsafe"
 
 	"gotrl/internal/parser"
+	"gotrl/internal/workers"
 
 	gurlf "github.com/Votline/Gurlf"
 	gscan "github.com/Votline/Gurlf/pkg/scanner"
@@ -175,6 +177,20 @@ func main() {
 	log.Debug("Args",
 		zap.Strings("args", args),
 		zap.Any("user_data", ud))
+
+	var wg sync.WaitGroup
+
+	if ud.TrlURL != "" {
+		wg.Go(func() {
+			trl := workers.NewTranslator(ud.TrlURL, log)
+			if err := trl.Translate(os.Stdin, os.Stdout); err != nil {
+				fmt.Printf("Translate error: %s\n", err.Error())
+				return
+			}
+		})
+	}
+
+	wg.Wait()
 }
 
 /*

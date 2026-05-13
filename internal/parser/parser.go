@@ -345,7 +345,7 @@ func isSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
 
-// Split data by byte and call yield for each key-value pair.
+// RangeByByte Split data by byte and call yield for each key-value pair.
 func RangeByByte(b []byte, sep byte, yield func(key, val []byte)) {
 	kS, kE := 0, 0
 	vS, vE := 0, 0
