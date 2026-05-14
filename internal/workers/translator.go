@@ -1,5 +1,5 @@
 // Package workers translator.go used Bridge-TRL/translator worker
-// It applied text from user, split it by periods.
+// It applied text from user and translate it.
 package workers
 
 import (
@@ -51,7 +51,7 @@ type Translator struct {
 
 // NewTranslator creates a new Translator worker
 // It finds 'http' in call and uses API if it is true
-func NewTranslator(call string, log *zap.Logger) *Translator {
+func NewTranslator(call string, wait int, log *zap.Logger) *Translator {
 	const op = "workers.NewTranslator"
 
 	t := &Translator{log: log}
@@ -73,6 +73,7 @@ func NewTranslator(call string, log *zap.Logger) *Translator {
 	return t
 }
 
+// Translate translates the text from reader and writes it to writer
 func (t *Translator) Translate(r io.Reader, w io.Writer) error {
 	const op = "workers.Translator.Translate"
 
@@ -123,6 +124,7 @@ func (t *Translator) Translate(r io.Reader, w io.Writer) error {
 	return nil
 }
 
+// translateAPI translates the 'textFrom' using API
 func (t *Translator) translateAPI(textFrom []byte, w io.Writer) error {
 	const op = "workers.Translator.translateAPI"
 
@@ -146,6 +148,8 @@ func (t *Translator) translateAPI(textFrom []byte, w io.Writer) error {
 	return nil
 }
 
+// translateScript translates the 'textFrom' using script
+// Using 'resBytes' from pool to avoid memory allocation
 func (t *Translator) translateScript(textFrom []byte, w io.Writer) error {
 	const op = "workers.Translator.translateScript"
 
