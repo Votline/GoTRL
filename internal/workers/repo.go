@@ -1,0 +1,162 @@
+// Package workers repo.go contains structs and consts for workers
+package workers
+
+import (
+	"fmt"
+	"io"
+	"os/exec"
+	"strings"
+	"sync"
+	"unsafe"
+
+	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+)
+
+const (
+	// modeCallAPI is flag to use API
+	modeCallAPI = -1
+
+	// modeCallScript is flag to use script
+	modeCallScript = -2
+
+	defaultTextLength = 512
+)
+
+var translatorTextPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, defaultTextLength)
+		return &b
+	},
+}
+
+// Worker is a translator worker
+type Worker struct {
+	// conn is a websocket connection for call API
+	conn *websocket.Conn
+
+	// log is a zap logger
+	log *zap.Logger
+
+	// call is a url or command for call API
+	call []string
+
+	// mode is a flag to use API or script
+	mode int
+}
+
+// NewWorker creates a new Worker
+func NewWorker(call string, log *zap.Logger) Worker {
+	w := Worker{log: log}
+	w.mode = extractMode(call)
+	w.call = strings.Split(call, " ")
+
+	return w
+}
+
+// EstabilishConnect establishes websocket connection to API
+// And save it to Worker 'conn' field
+func EstabilishConnect(w *Worker) error {
+	const op = "workers.repo.EstabilishConnect"
+
+	if w.mode == modeCallAPI {
+		conn, _, err := websocket.DefaultDialer.Dial(w.call[0], nil)
+		if err != nil {
+			return fmt.Errorf("%s: estabilished connection with %q: %w",
+				op, w.call[0], err)
+		}
+		w.conn = conn
+	}
+
+	return nil
+}
+
+// callAPI calls API, send textFrom and read result via websocket
+// Write result to writer
+func (w *Worker) callAPI(textFrom []byte, wr io.Writer) error {
+	const op = "workers.repo.callAPI"
+
+	if err := w.conn.WriteMessage(websocket.TextMessage, textFrom); err != nil {
+		return fmt.Errorf("%s: write message: %w", op, err)
+	}
+
+	_, message, err := w.conn.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("%s: read message: %w", op, err)
+	}
+
+	w.log.Info("Got text from API",
+		zap.String("op", op),
+		zap.String("text", unsafe.String(unsafe.SliceData(message), len(message))))
+
+	if _, err := wr.Write(message); err != nil {
+		return fmt.Errorf("%s: writer write: %w", op, err)
+	}
+
+	return nil
+}
+
+// callScript calls script, send textFrom to stdin and read result from stdout
+// Write result to writer
+// Using 'resBytes' from pool to avoid memory allocation
+func (w *Worker) callScript(textFrom []byte, wr io.Writer) error {
+	const op = "workers.repo.callScript"
+
+	cmd := exec.Command(w.call[0], w.call[1:]...)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("%s: get stdin pipe: %w", op, err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("%s: get stdout pipe: %w", op, err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%s: start command: %w", op, err)
+	}
+	defer cmd.Wait()
+
+	if _, err := stdin.Write(textFrom); err != nil {
+		return fmt.Errorf("%s: stdin write: %w", op, err)
+	}
+
+	if err := stdin.Close(); err != nil {
+		return fmt.Errorf("%s: close stdin: %w", op, err)
+	}
+
+	resFullPtr := translatorTextPool.Get().(*[]byte)
+	resFull := (*resFullPtr)[:defaultTextLength]
+	defer translatorTextPool.Put(resFullPtr)
+
+	n, err := io.ReadFull(stdout, resFull)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return fmt.Errorf("%s: stdout read: %w", op, err)
+	}
+	res := resFull[:n]
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("%s: script wait: %w", op, err)
+	}
+
+	if _, err := wr.Write(res); err != nil {
+		return fmt.Errorf("%s: writer write: %w", op, err)
+	}
+
+	w.log.Info("Got text from script",
+		zap.String("op", op),
+		zap.String("text", unsafe.String(unsafe.SliceData(res), len(res))))
+
+	return nil
+}
+
+// extractMode extracts mode from call
+// It returns callAPI if call contains 'ws'
+// It returns callScript if call doesn't contain 'ws'
+func extractMode(call string) int {
+	if strings.Contains(call, "ws") {
+		return modeCallAPI
+	}
+	return modeCallScript
+}
