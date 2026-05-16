@@ -22,6 +22,7 @@ type UserData struct {
 	TrlURL  string `gurlf:"TranslationURL"`
 	SpttURL string `gurlf:"SpeechToTextURL"`
 	TtsURL  string `gurlf:"TextToSpeechURL"`
+	InfURL  string `gurlf:"InflectorURL"`
 }
 
 // Parse config file and return UserData.

@@ -180,11 +180,22 @@ func main() {
 
 	var wg sync.WaitGroup
 
-	if ud.TrlURL != "" {
+	/*
+		if ud.TrlURL != "" {
+			wg.Go(func() {
+				trl := workers.NewTranslator(ud.TrlURL, log)
+				if err := trl.Translate(os.Stdin, os.Stdout); err != nil {
+					fmt.Printf("Translate error: %s\n", err.Error())
+					return
+				}
+			})
+		}*/
+
+	if ud.InfURL != "" {
 		wg.Go(func() {
-			trl := workers.NewTranslator(ud.TrlURL, log)
-			if err := trl.Translate(os.Stdin, os.Stdout); err != nil {
-				fmt.Printf("Translate error: %s\n", err.Error())
+			infl := workers.NewInflector(ud.InfURL, log)
+			if err := infl.Inflect(os.Stdin, os.Stdout); err != nil {
+				fmt.Printf("Inflect error: %s\n", err.Error())
 				return
 			}
 		})
