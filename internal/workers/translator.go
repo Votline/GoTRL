@@ -29,7 +29,7 @@ func NewTranslator(call string, log *zap.Logger) *Translator {
 func (t *Translator) Translate(r io.Reader, w io.Writer) error {
 	const op = "workers.Translator.Translate"
 
-	if err := EstabilishConnect(&t.Worker); err != nil {
+	if err := EstabilishConnect(&t.Worker, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	defer t.conn.Close()
@@ -76,7 +76,7 @@ func (t *Translator) Translate(r io.Reader, w io.Writer) error {
 func (t *Translator) translateAPI(textFrom []byte, w io.Writer) error {
 	const op = "workers.Translator.translateAPI"
 
-	if err := t.callAPI(textFrom, w); err != nil {
+	if err := t.callAPI(textFrom, w, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -89,7 +89,7 @@ func (t *Translator) translateAPI(textFrom []byte, w io.Writer) error {
 func (t *Translator) translateScript(textFrom []byte, w io.Writer) error {
 	const op = "workers.Translator.translateScript"
 
-	if err := t.callScript(textFrom, w); err != nil {
+	if err := t.callScript(textFrom, w, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 

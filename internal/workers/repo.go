@@ -56,8 +56,10 @@ func NewWorker(call string, log *zap.Logger) Worker {
 
 // EstabilishConnect establishes websocket connection to API
 // And save it to Worker 'conn' field
-func EstabilishConnect(w *Worker) error {
-	const op = "workers.repo.EstabilishConnect"
+func EstabilishConnect(w *Worker, op string) error {
+	w.log.Info("Estabilish connect",
+		zap.String("op", op),
+		zap.String("call", w.call[0]))
 
 	if w.mode == modeCallAPI {
 		conn, _, err := websocket.DefaultDialer.Dial(w.call[0], nil)
@@ -73,8 +75,10 @@ func EstabilishConnect(w *Worker) error {
 
 // callAPI calls API, send textFrom and read result via websocket
 // Write result to writer
-func (w *Worker) callAPI(textFrom []byte, wr io.Writer) error {
-	const op = "workers.repo.callAPI"
+func (w *Worker) callAPI(textFrom []byte, wr io.Writer, op string) error {
+	w.log.Info("Call API",
+		zap.String("op", op),
+		zap.String("call", w.call[0]))
 
 	if err := w.conn.WriteMessage(websocket.TextMessage, textFrom); err != nil {
 		return fmt.Errorf("%s: write message: %w", op, err)
@@ -99,8 +103,10 @@ func (w *Worker) callAPI(textFrom []byte, wr io.Writer) error {
 // callScript calls script, send textFrom to stdin and read result from stdout
 // Write result to writer
 // Using 'resBytes' from pool to avoid memory allocation
-func (w *Worker) callScript(textFrom []byte, wr io.Writer) error {
-	const op = "workers.repo.callScript"
+func (w *Worker) callScript(textFrom []byte, wr io.Writer, op string) error {
+	w.log.Info("Call script",
+		zap.String("op", op),
+		zap.Strings("call", w.call))
 
 	cmd := exec.Command(w.call[0], w.call[1:]...)
 

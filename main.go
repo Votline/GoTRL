@@ -19,6 +19,7 @@ import (
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"sync"
@@ -180,21 +181,21 @@ func main() {
 
 	var wg sync.WaitGroup
 
-	/*
-		if ud.TrlURL != "" {
-			wg.Go(func() {
-				trl := workers.NewTranslator(ud.TrlURL, log)
-				if err := trl.Translate(os.Stdin, os.Stdout); err != nil {
-					fmt.Printf("Translate error: %s\n", err.Error())
-					return
-				}
-			})
-		}*/
+	trRead, trWrite := io.Pipe()
+	if ud.TrlURL != "" {
+		wg.Go(func() {
+			trl := workers.NewTranslator(ud.TrlURL, log)
+			if err := trl.Translate(os.Stdin, trWrite); err != nil {
+				fmt.Printf("Translate error: %s\n", err.Error())
+				return
+			}
+		})
+	}
 
 	if ud.InfURL != "" {
 		wg.Go(func() {
 			infl := workers.NewInflector(ud.InfURL, log)
-			if err := infl.Inflect(os.Stdin, os.Stdout); err != nil {
+			if err := infl.Inflect(os.Stdin, trRead, os.Stdout); err != nil {
 				fmt.Printf("Inflect error: %s\n", err.Error())
 				return
 			}
