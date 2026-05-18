@@ -12,13 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	jsonPattern = `{"original":"","translated":""}`
-	jsonStart   = `{"original": `
-	jsonMid     = `, "translated": `
-	jsonEnd     = `}`
-)
-
 // Inflector is a inflector worker
 type Inflector struct {
 	Worker
@@ -155,34 +148,4 @@ func requestMarshal(orig, trln []byte, buf *[]byte) {
 	jsonData = append(jsonData, jsonEnd...)
 
 	*buf = jsonData
-}
-
-// trimSpaceBytes trims spaces with no allocation
-func trimSpaceBytes(b *[]byte) {
-	buf := *b
-
-	if len(buf) == 0 {
-		return
-	}
-
-	start := 0
-	end := len(buf)
-
-	for start < end && isSpace(buf[start]) {
-		start++
-	}
-	for end > start && isSpace(buf[end-1]) {
-		end--
-	}
-
-	if start == 0 && end == len(buf) {
-		return
-	} else {
-		*b = buf[start:end]
-	}
-}
-
-// isSpace checks if byte is space
-func isSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
