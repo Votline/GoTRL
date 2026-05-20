@@ -5,7 +5,6 @@ package workers
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"strconv"
 	"unsafe"
 
@@ -28,7 +27,7 @@ func NewInflector(call string, log *zap.Logger) *Inflector {
 }
 
 // Inflect inflects the text from reader and writes it to writer
-func (i *Inflector) Inflect(origRead, trRead io.Reader, w io.Writer) error {
+func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 	const op = "workers.Inflector.Inflect"
 
 	if err := EstabilishConnect(&i.Worker, op); err != nil {
@@ -53,14 +52,7 @@ func (i *Inflector) Inflect(origRead, trRead io.Reader, w io.Writer) error {
 	defer translatorTextPool.Put(jsonReqPtr)
 
 	for {
-		n, err := trRead.Read(textPart)
-		if err != nil {
-			if err == io.EOF {
-				i.log.Info("Got EOF", zap.String("op", op))
-				break
-			}
-			return fmt.Errorf("%s: reader read: %w", op, err)
-		}
+		n := trRead(textPart)
 		if len(textPart) == 0 {
 			continue
 		}
@@ -102,13 +94,11 @@ func (i *Inflector) Inflect(origRead, trRead io.Reader, w io.Writer) error {
 		jsonReq = jsonReq[:0]
 		origFull = origFull[:0]
 	}
-
-	return nil
 }
 
 // inflectAPI inflects the 'textFrom' using API
 // Used workers.repo.callAPI
-func (i *Inflector) inflectAPI(textFrom []byte, w io.Writer) error {
+func (i *Inflector) inflectAPI(textFrom []byte, w func([]byte) int) error {
 	const op = "workers.Inflector.inflectAPI"
 
 	if err := i.callAPI(textFrom, w, op); err != nil {
@@ -121,7 +111,7 @@ func (i *Inflector) inflectAPI(textFrom []byte, w io.Writer) error {
 // inflectScript inflects the 'textFrom' using script
 // Using 'resBytes' from pool to avoid memory allocation
 // Used workers.repo.callScript
-func (i *Inflector) inflectScript(textFrom []byte, w io.Writer) error {
+func (i *Inflector) inflectScript(textFrom []byte, w func([]byte) int) error {
 	const op = "workers.Inflector.inflectScript"
 
 	if err := i.callScript(textFrom, w, op); err != nil {

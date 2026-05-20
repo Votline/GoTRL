@@ -89,7 +89,7 @@ func EstabilishConnect(w *Worker, op string) error {
 
 // callAPI calls API, send textFrom and read result via websocket
 // Write result to writer
-func (w *Worker) callAPI(textFrom []byte, wr io.Writer, op string) error {
+func (w *Worker) callAPI(textFrom []byte, write func([]byte) int, op string) error {
 	w.log.Info("Call API",
 		zap.String("op", op),
 		zap.String("call", w.call[0]))
@@ -107,9 +107,7 @@ func (w *Worker) callAPI(textFrom []byte, wr io.Writer, op string) error {
 		zap.String("op", op),
 		zap.String("text", unsafe.String(unsafe.SliceData(message), len(message))))
 
-	if _, err := wr.Write(message); err != nil {
-		return fmt.Errorf("%s: writer write: %w", op, err)
-	}
+	write(message)
 
 	return nil
 }
@@ -117,7 +115,7 @@ func (w *Worker) callAPI(textFrom []byte, wr io.Writer, op string) error {
 // callScript calls script, send textFrom to stdin and read result from stdout
 // Write result to writer
 // Using 'resBytes' from pool to avoid memory allocation
-func (w *Worker) callScript(textFrom []byte, wr io.Writer, op string) error {
+func (w *Worker) callScript(textFrom []byte, write func([]byte) int, op string) error {
 	w.log.Info("Call script",
 		zap.String("op", op),
 		zap.Strings("call", w.call))
@@ -160,9 +158,7 @@ func (w *Worker) callScript(textFrom []byte, wr io.Writer, op string) error {
 		return fmt.Errorf("%s: script wait: %w", op, err)
 	}
 
-	if _, err := wr.Write(res); err != nil {
-		return fmt.Errorf("%s: writer write: %w", op, err)
-	}
+	write(res)
 
 	w.log.Info("Got text from script",
 		zap.String("op", op),

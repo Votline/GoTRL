@@ -26,6 +26,7 @@ import (
 	"unsafe"
 
 	"gotrl/internal/parser"
+	rb "gotrl/internal/ringbuffer"
 	"gotrl/internal/workers"
 
 	gurlf "github.com/Votline/Gurlf"
@@ -181,11 +182,33 @@ func main() {
 
 	var wg sync.WaitGroup
 
-	trRead, trWrite := io.Pipe()
+	trBuf := rb.NewRB[byte](512)
+
+	stdin := func(buf []byte) int {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				return 0
+			}
+			fmt.Printf("Read error: %s\n", err.Error())
+			return 0
+		}
+		return n
+	}
+
+	stdout := func(buf []byte) int {
+		n, err := os.Stdout.Write(buf)
+		if err != nil {
+			fmt.Printf("Write error: %s\n", err.Error())
+			return 0
+		}
+		return n
+	}
+
 	if ud.TrlURL != "" {
 		wg.Go(func() {
 			trl := workers.NewTranslator(ud.TrlURL, log)
-			if err := trl.Translate(os.Stdin, trWrite); err != nil {
+			if err := trl.Translate(stdin, trBuf.Write); err != nil {
 				fmt.Printf("Translate error: %s\n", err.Error())
 				return
 			}
@@ -195,7 +218,7 @@ func main() {
 	if ud.InfURL != "" {
 		wg.Go(func() {
 			infl := workers.NewInflector(ud.InfURL, log)
-			if err := infl.Inflect(os.Stdin, trRead, os.Stdout); err != nil {
+			if err := infl.Inflect(stdin, trBuf.Read, stdout); err != nil {
 				fmt.Printf("Inflect error: %s\n", err.Error())
 				return
 			}

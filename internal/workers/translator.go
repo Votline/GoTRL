@@ -3,7 +3,6 @@ package workers
 
 import (
 	"fmt"
-	"io"
 	"unsafe"
 
 	"go.uber.org/zap"
@@ -26,7 +25,7 @@ func NewTranslator(call string, log *zap.Logger) *Translator {
 }
 
 // Translate translates the text from reader and writes it to writer
-func (t *Translator) Translate(r io.Reader, w io.Writer) error {
+func (t *Translator) Translate(read func([]byte) int, w func([]byte) int) error {
 	const op = "workers.Translator.Translate"
 
 	if err := EstabilishConnect(&t.Worker, op); err != nil {
@@ -39,14 +38,7 @@ func (t *Translator) Translate(r io.Reader, w io.Writer) error {
 	defer translatorTextPool.Put(textFullPtr)
 
 	for {
-		n, err := r.Read(textFull)
-		if err != nil {
-			if err == io.EOF {
-				t.log.Info("Got EOF", zap.String("op", op))
-				break
-			}
-			return fmt.Errorf("%s: reader read: %w", op, err)
-		}
+		n := read(textFull)
 		if len(textFull) == 0 {
 			continue
 		}
@@ -67,13 +59,11 @@ func (t *Translator) Translate(r io.Reader, w io.Writer) error {
 			}
 		}
 	}
-
-	return nil
 }
 
 // translateAPI translates the 'textFrom' using API
 // Used workers.repo.callAPI
-func (t *Translator) translateAPI(textFrom []byte, w io.Writer) error {
+func (t *Translator) translateAPI(textFrom []byte, w func([]byte) int) error {
 	const op = "workers.Translator.translateAPI"
 
 	if err := t.callAPI(textFrom, w, op); err != nil {
@@ -86,7 +76,7 @@ func (t *Translator) translateAPI(textFrom []byte, w io.Writer) error {
 // translateScript translates the 'textFrom' using script
 // Using 'resBytes' from pool to avoid memory allocation
 // Used workers.repo.callScript
-func (t *Translator) translateScript(textFrom []byte, w io.Writer) error {
+func (t *Translator) translateScript(textFrom []byte, w func([]byte) int) error {
 	const op = "workers.Translator.translateScript"
 
 	if err := t.callScript(textFrom, w, op); err != nil {
