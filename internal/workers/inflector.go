@@ -35,21 +35,21 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 	}
 	defer i.conn.Close()
 
-	textPartPtr := translatorTextPool.Get().(*[]byte)
+	textPartPtr := textPool.Get().(*[]byte)
 	textPart := (*textPartPtr)[:defaultTextLength]
-	defer translatorTextPool.Put(textPartPtr)
+	defer textPool.Put(textPartPtr)
 
-	textFullPtr := translatorTextPool.Get().(*[]byte)
+	textFullPtr := textPool.Get().(*[]byte)
 	textFull := (*textFullPtr)[:0]
-	defer translatorTextPool.Put(textFullPtr)
+	defer textPool.Put(textFullPtr)
 
-	origFullPtr := translatorTextPool.Get().(*[]byte)
+	origFullPtr := textPool.Get().(*[]byte)
 	origFull := (*origFullPtr)[:0]
-	defer translatorTextPool.Put(origFullPtr)
+	defer textPool.Put(origFullPtr)
 
-	jsonReqPtr := translatorTextPool.Get().(*[]byte)
+	jsonReqPtr := textPool.Get().(*[]byte)
 	jsonReq := (*jsonReqPtr)[:0]
-	defer translatorTextPool.Put(jsonReqPtr)
+	defer textPool.Put(jsonReqPtr)
 
 	for {
 		n := trRead(textPart)

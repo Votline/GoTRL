@@ -3,6 +3,7 @@
 package ringbuffer
 
 import (
+	"io"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -26,9 +27,43 @@ func NewRB[T any](bufSize uint64) *RingBuffer[T] {
 	}
 }
 
-// Write writes a float32 slice to the buffer.
+// Write writes a byte to the buffer.
+// Implements io.Writer.
+func (b *RingBuffer[byte]) Write(val []byte) (int, error) {
+	total := 0
+	for total < len(val) {
+		n := b.WriteSimple(val[total:])
+		if n == -1 {
+			if total > 0 {
+				return total, nil
+			}
+			return 0, io.ErrShortBuffer
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// Read reads a byte from the buffer.
+// Implements io.Reader.
+func (b *RingBuffer[byte]) Read(val []byte) (int, error) {
+	total := 0
+	for total < len(val) {
+		n := b.ReadSimple(val[total:])
+		if n == -1 {
+			if total > 0 {
+				return total, nil
+			}
+			return 0, io.ErrShortBuffer
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// WriteSimple writes a float32 slice to the buffer.
 // Returns number of float32s written.
-func (b *RingBuffer[T]) Write(val []T) int {
+func (b *RingBuffer[T]) WriteSimple(val []T) int {
 	if val == nil {
 		return 0
 	}
@@ -61,9 +96,9 @@ func (b *RingBuffer[T]) Write(val []T) int {
 	}
 }
 
-// Read reads a float32 slice from the buffer.
+// ReadSimple reads a float32 slice from the buffer.
 // Returns number of float32s read.
-func (b *RingBuffer[T]) Read(p []T) int {
+func (b *RingBuffer[T]) ReadSimple(p []T) int {
 	spinIdx := 0
 	for {
 		w := atomic.LoadUint64(&b.wPos)
@@ -136,6 +171,7 @@ func Spin(idx *int) {
 func (b *RingBuffer[T]) Reset() {
 	atomic.StoreUint64(&b.wPos, 0)
 	atomic.StoreUint64(&b.rPos, 0)
+	atomic.StoreInt32(&b.isClosed, 0)
 }
 
 // Len returns the current length of the buffer.

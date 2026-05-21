@@ -33,9 +33,9 @@ func (t *Translator) Translate(read func([]byte) int, w func([]byte) int) error 
 	}
 	defer t.conn.Close()
 
-	textFullPtr := translatorTextPool.Get().(*[]byte)
+	textFullPtr := textPool.Get().(*[]byte)
 	textFull := (*textFullPtr)[:defaultTextLength]
-	defer translatorTextPool.Put(textFullPtr)
+	defer textPool.Put(textFullPtr)
 
 	for {
 		n := read(textFull)

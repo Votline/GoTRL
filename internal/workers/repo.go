@@ -9,6 +9,8 @@ import (
 	"sync"
 	"unsafe"
 
+	"gotrl/internal/ringbuffer"
+
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -24,6 +26,10 @@ const (
 	// Used for pool
 	defaultTextLength = 512
 
+	// defaultAudioLength is a default audio length
+	// Used for audio pool
+	defaultAudioLength = 4096
+
 	// jsonStart is a original json pattern
 	// Used for start inflector data
 	jsonStart = `{"original": `
@@ -35,11 +41,46 @@ const (
 	// jsonEnd is a end json
 	// Used for end inflector data
 	jsonEnd = `}`
+
+	// sampleRate is a sample rate for audio
+	sampleRate = 24000
+
+	// channels is a number of channels for audio
+	channels = 1
+
+	// duration is a duration for collect audio
+	duration = 60
+
+	// samplePerPacket is a number of samples per packet
+	samplePerPacket = ((sampleRate * duration) / 1000) * channels
+
+	// bytesPerPacket is a number of bytes per packet
+	bytesPerPacket = samplePerPacket * 2
 )
 
-var translatorTextPool = sync.Pool{
+// textPool is a pool for text
+// Used in translator and inflector
+var textPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 0, defaultTextLength)
+		return &b
+	},
+}
+
+// audioBytesPool is a pool for audio bytes (wav/websocket)
+// Used in tts and stt
+var audioBytesPool = sync.Pool{
+	New: func() any {
+		b := ringbuffer.NewRB[byte](defaultAudioLength)
+		return b
+	},
+}
+
+// audioFloatPool is a pool for audio floats (pcm)
+// Used in tts
+var audioFloatPool = sync.Pool{
+	New: func() any {
+		b := make([]float32, defaultAudioLength)
 		return &b
 	},
 }
@@ -103,9 +144,9 @@ func (w *Worker) callAPI(textFrom []byte, write func([]byte) int, op string) err
 		return fmt.Errorf("%s: read message: %w", op, err)
 	}
 
-	w.log.Info("Got text from API",
+	w.log.Info("Got response from API",
 		zap.String("op", op),
-		zap.String("text", unsafe.String(unsafe.SliceData(message), len(message))))
+		zap.Int("response length", len(message)))
 
 	write(message)
 
@@ -144,9 +185,9 @@ func (w *Worker) callScript(textFrom []byte, write func([]byte) int, op string) 
 		return fmt.Errorf("%s: close stdin: %w", op, err)
 	}
 
-	resFullPtr := translatorTextPool.Get().(*[]byte)
+	resFullPtr := textPool.Get().(*[]byte)
 	resFull := (*resFullPtr)[:defaultTextLength]
-	defer translatorTextPool.Put(resFullPtr)
+	defer textPool.Put(resFullPtr)
 
 	n, err := io.ReadFull(stdout, resFull)
 	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {

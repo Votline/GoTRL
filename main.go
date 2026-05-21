@@ -183,6 +183,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	trBuf := rb.NewRB[byte](512)
+	infBuf := rb.NewRB[byte](512)
 
 	stdin := func(buf []byte) int {
 		n, err := os.Stdin.Read(buf)
@@ -208,18 +209,34 @@ func main() {
 	if ud.TrlURL != "" {
 		wg.Go(func() {
 			trl := workers.NewTranslator(ud.TrlURL, log)
-			if err := trl.Translate(stdin, trBuf.Write); err != nil {
+			if err := trl.Translate(stdin, trBuf.WriteSimple); err != nil {
 				fmt.Printf("Translate error: %s\n", err.Error())
 				return
 			}
 		})
 	}
 
+	infBufWrite := func(buf []byte) int {
+		n := infBuf.WriteSimple(buf)
+		stdout(buf)
+		return n
+	}
+
 	if ud.InfURL != "" {
 		wg.Go(func() {
 			infl := workers.NewInflector(ud.InfURL, log)
-			if err := infl.Inflect(stdin, trBuf.Read, stdout); err != nil {
+			if err := infl.Inflect(stdin, trBuf.ReadSimple, infBufWrite); err != nil {
 				fmt.Printf("Inflect error: %s\n", err.Error())
+				return
+			}
+		})
+	}
+
+	if ud.TtsURL != "" {
+		wg.Go(func() {
+			tts := workers.NewTTS(ud.TtsURL, log)
+			if err := tts.TTS(infBuf.ReadSimple); err != nil {
+				fmt.Printf("TTS error: %s\n", err.Error())
 				return
 			}
 		})
