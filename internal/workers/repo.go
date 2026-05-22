@@ -42,17 +42,20 @@ const (
 	// Used for end inflector data
 	jsonEnd = `}`
 
-	// sampleRate is a sample rate for audio
-	sampleRate = 24000
+	// SampleRate is a sample rate for record and play audio
+	SampleRate = 16000
 
 	// channels is a number of channels for audio
-	channels = 1
+	Channels = 1
 
-	// duration is a duration for collect audio
-	duration = 60
+	// Duration is a duration for collect audio
+	Duration = 120
+
+	// BufferSize is a buffer size for record audio in stt
+	BufferSize = 8192
 
 	// samplePerPacket is a number of samples per packet
-	samplePerPacket = ((sampleRate * duration) / 1000) * channels
+	samplePerPacket = ((SampleRate * Duration) / 1000) * Channels
 
 	// bytesPerPacket is a number of bytes per packet
 	bytesPerPacket = samplePerPacket * 2

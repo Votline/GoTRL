@@ -9,7 +9,6 @@ import (
 
 	rb "gotrl/internal/ringbuffer"
 
-	gd "github.com/Votline/Go-audio"
 	gdAu "github.com/Votline/Go-audio/pkg/audio"
 
 	"go.uber.org/zap"
@@ -24,24 +23,10 @@ type Tts struct {
 }
 
 // NewTTS creates a new Tts worker
-func NewTTS(call string, log *zap.Logger) *Tts {
+func NewTTS(call string, acl *gdAu.AudioClient, log *zap.Logger) *Tts {
 	const op = "workers.NewTts"
 
 	w := NewWorker(call, log)
-
-	logF := func(msg string) {
-		log.Info("AudioClient", zap.String("event", msg))
-	}
-
-	acl, err := gd.InitAudioClient(
-		0, 0, 0, 0,
-		channels, 0, sampleRate, duration,
-		false, logF,
-	)
-	if err != nil {
-		log.Fatal("InitAudioClient", zap.Error(err))
-	}
-
 	t := &Tts{Worker: w, acl: acl}
 
 	return t
@@ -107,44 +92,65 @@ func (t *Tts) TTS(read func([]byte) int) error {
 	}
 }
 
-// writeWrap uploads audio to buffer via chunks
-func writeWrap(buf []byte, wr *rb.RingBuffer[byte]) int {
+func (t *Tts) writeWrap(buf []byte, wr *rb.RingBuffer[byte]) int {
+	dataStart := 0
 	idx := bytes.Index(buf, []byte("data")) // WAV header
-	if idx == -1 {
-		return 0
-	}
-	dataStart := idx + 8 // len 'data' + chunk size
-	if dataStart >= len(buf) {
-		return 0
+	if idx != -1 {
+		dataStart = idx + 8
 	}
 
-	for i := dataStart; i < len(buf); i += bytesPerPacket {
-		end := i + bytesPerPacket
-		end = min(end, len(buf))
+	rawData := buf[dataStart:]
+	if len(rawData) < 2 {
+		return len(buf)
+	}
 
-		curChunk := buf[i:end]
-		numSamples := len(curChunk) / 2
+	numInputSamples := len(rawData) / 2
+	ratio := 1.368
+	numOutputSamples := int(float64(numInputSamples) / ratio)
 
-		floatBufPtr := audioFloatPool.Get().(*[]float32)
-		floatBuf := (*floatBufPtr)[:numSamples]
+	if numOutputSamples <= 0 {
+		return len(buf)
+	}
 
-		for j := range numSamples {
-			s := int16(binary.LittleEndian.Uint16(curChunk[j*2 : (j+1)*2]))
-			floatBuf[j] = float32(s) / 32768
+	// Resample all buffer
+	floatBufPtr := audioFloatPool.Get().(*[]float32)
+	if cap(*floatBufPtr) < numOutputSamples {
+		*floatBufPtr = make([]float32, numOutputSamples)
+	}
+	allFloats := (*floatBufPtr)[:numOutputSamples]
+
+	for j := range numOutputSamples {
+		inputIdx := int(float64(j) * ratio)
+		if inputIdx*2+1 >= len(rawData) {
+			allFloats = allFloats[:j]
+			break
 		}
+		s := int16(binary.LittleEndian.Uint16(rawData[inputIdx*2 : (inputIdx+1)*2]))
+		allFloats[j] = float32(s) / 32768.0
+	}
 
-		size := uint32(len(floatBuf) * 4)
+	// Chunking
+	samplesPerChunk := bytesPerPacket / 4
+	if samplesPerChunk <= 0 {
+		samplesPerChunk = len(allFloats)
+	}
+
+	for i := 0; i < len(allFloats); i += samplesPerChunk {
+		end := i + samplesPerChunk
+		end = min(end, len(allFloats))
+
+		curChunk := allFloats[i:end]
+		size := uint32(len(curChunk) * 4)
+
 		if err := binary.Write(wr, binary.LittleEndian, size); err != nil {
-			audioFloatPool.Put(floatBufPtr)
-			return 0
+			break
 		}
-		if err := binary.Write(wr, binary.LittleEndian, floatBuf); err != nil {
-			audioFloatPool.Put(floatBufPtr)
-			return 0
+		if err := binary.Write(wr, binary.LittleEndian, curChunk); err != nil {
+			break
 		}
-		audioFloatPool.Put(floatBufPtr)
 	}
 
+	audioFloatPool.Put(floatBufPtr)
 	return len(buf)
 }
 
@@ -153,7 +159,7 @@ func (t *Tts) ttsAPI(textFrom []byte, wr *rb.RingBuffer[byte]) error {
 	const op = "workers.Tts.ttsAPI"
 
 	write := func(buf []byte) int {
-		return writeWrap(buf, wr)
+		return t.writeWrap(buf, wr)
 	}
 
 	if err := t.callAPI(textFrom, write, op); err != nil {
@@ -168,7 +174,7 @@ func (t *Tts) ttsScript(textFrom []byte, wr *rb.RingBuffer[byte]) error {
 	const op = "workers.Tts.ttsScript"
 
 	write := func(buf []byte) int {
-		return writeWrap(buf, wr)
+		return t.writeWrap(buf, wr)
 	}
 
 	if err := t.callScript(textFrom, write, op); err != nil {

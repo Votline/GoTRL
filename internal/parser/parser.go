@@ -20,7 +20,7 @@ type UserData struct {
 	InpType string `gurlf:"InputType"`
 	OutType string `gurlf:"OutputType"`
 	TrlURL  string `gurlf:"TranslationURL"`
-	SpttURL string `gurlf:"SpeechToTextURL"`
+	SttURL  string `gurlf:"SpeechToTextURL"`
 	TtsURL  string `gurlf:"TextToSpeechURL"`
 	InfURL  string `gurlf:"InflectorURL"`
 }

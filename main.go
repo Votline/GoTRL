@@ -29,6 +29,7 @@ import (
 	rb "gotrl/internal/ringbuffer"
 	"gotrl/internal/workers"
 
+	gd "github.com/Votline/Go-audio"
 	gurlf "github.com/Votline/Gurlf"
 	gscan "github.com/Votline/Gurlf/pkg/scanner"
 	"go.uber.org/zap"
@@ -88,14 +89,14 @@ func parseArgs(args []string) (*parser.UserData, error) {
 			case "-trl", "--translationURL":
 				ud.TrlURL = valStr
 			case "-stt", "--speechToTextURL":
-				ud.SpttURL = valStr
+				ud.SttURL = valStr
 			case "-tts", "--textToSpeechURL":
 				ud.TtsURL = valStr
 			}
 		})
 	}
 
-	if ud.InpType == "" || ud.OutType == "" || ud.TrlURL == "" || ud.SpttURL == "" || ud.TtsURL == "" {
+	if ud.InpType == "" || ud.OutType == "" || ud.TrlURL == "" || ud.SttURL == "" || ud.TtsURL == "" {
 		return nil, fmt.Errorf("%s: invalid args", op)
 	}
 
@@ -206,6 +207,26 @@ func main() {
 		return n
 	}
 
+	acl, err := gd.InitAudioClient(
+		workers.BufferSize, 0, 0, workers.BufferSize,
+		workers.Channels, workers.SampleRate, workers.SampleRate, workers.Duration,
+		false, nil,
+	)
+	if err != nil {
+		log.Fatal("InitAudioClient", zap.Error(err))
+	}
+
+	sttBuf := rb.NewRB[byte](workers.BufferSize)
+	if ud.SttURL != "" {
+		wg.Go(func() {
+			stt := workers.NewStt(ud.SttURL, acl, log)
+			if err := stt.Stt(sttBuf.WriteSimple); err != nil {
+				fmt.Printf("Stt error: %s\n", err.Error())
+				return
+			}
+		})
+	}
+
 	if ud.TrlURL != "" {
 		wg.Go(func() {
 			trl := workers.NewTranslator(ud.TrlURL, log)
@@ -234,8 +255,8 @@ func main() {
 
 	if ud.TtsURL != "" {
 		wg.Go(func() {
-			tts := workers.NewTTS(ud.TtsURL, log)
-			if err := tts.TTS(infBuf.ReadSimple); err != nil {
+			tts := workers.NewTTS(ud.TtsURL, acl, log)
+			if err := tts.TTS(sttBuf.ReadSimple); err != nil {
 				fmt.Printf("TTS error: %s\n", err.Error())
 				return
 			}
