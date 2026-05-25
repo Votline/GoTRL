@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	github.com/Votline/Go-audio v1.0.1-0.20260415123656-a38b9c6101c7 // indirect
+	github.com/Votline/Go-audio v1.0.1-0.20260507130404-da711cd9f76f // indirect
 	github.com/Votline/Gurlf v1.2.1-0.20260218184901-bfa19cd86806 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/gordonklaus/portaudio v0.0.0-20260203164431-765aa7dfa631 // indirect
@@ -19,3 +19,5 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/image v0.36.0 // indirect
 )
+
+replace github.com/Votline/Go-audio => /home/hypnogen/GOprojects/Go-audio
