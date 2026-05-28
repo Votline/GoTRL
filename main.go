@@ -214,6 +214,16 @@ func main() {
 		}()
 	}
 
+	if ud.IttURL != "" {
+		go func() {
+			itt := workers.NewITT(ud.IttURL, log)
+			if err := itt.ITT(stdout); err != nil {
+				fmt.Printf("ITT error: %s\n", err.Error())
+				return
+			}
+		}()
+	}
+
 	<-ctx.Done()
 	if err := acl.RemoveMonitor("STT_only"); err != nil {
 		log.Fatal("RemoveMonitor", zap.Error(err))
