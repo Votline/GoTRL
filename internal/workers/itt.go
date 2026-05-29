@@ -36,7 +36,7 @@ func (i *ITT) ITT(write func([]byte) int) error {
 
 	defer i.log.Error("Leaved", zap.String("op", op))
 
-	if err := EstabilishConnect(&i.Worker, op); err != nil {
+	if err := EstablishConnect(&i.Worker, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	defer i.conn.Close()
@@ -53,6 +53,11 @@ func (i *ITT) ITT(write func([]byte) int) error {
 				errChan <- fmt.Errorf("%s: ReadMessage: %w", op, err)
 				break
 			}
+
+			i.log.Debug("Write image to writer",
+				zap.String("op", op),
+				zap.Int("data len", len(msg)))
+
 			write(msg)
 		}
 	}()
@@ -67,6 +72,10 @@ func (i *ITT) ITT(write func([]byte) int) error {
 				i.log.Error("ReadFile", zap.Error(err))
 				continue
 			}
+
+			i.log.Debug("Send image to WS",
+				zap.String("op", op),
+				zap.Int("data len", len(data)))
 
 			if err := i.conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 				i.log.Error("WriteMessage", zap.Error(err))

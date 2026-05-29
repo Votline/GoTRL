@@ -25,10 +25,10 @@ func NewTranslator(call string, log *zap.Logger) *Translator {
 }
 
 // Translate translates the text from reader and writes it to writer
-func (t *Translator) Translate(read func([]byte) int, w func([]byte) int) error {
+func (t *Translator) Translate(read, write, origWrite func([]byte) int) error {
 	const op = "workers.Translator.Translate"
 
-	if err := EstabilishConnect(&t.Worker, op); err != nil {
+	if err := EstablishConnect(&t.Worker, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	defer t.conn.Close()
@@ -49,12 +49,14 @@ func (t *Translator) Translate(read func([]byte) int, w func([]byte) int) error 
 			zap.String("op", op),
 			zap.String("text", unsafe.String(unsafe.SliceData(textFrom), len(textFrom))))
 
+		origWrite(textFrom)
+
 		if t.mode == modeCallAPI {
-			if err := t.translateAPI(textFrom, w); err != nil {
+			if err := t.translateAPI(textFrom, write); err != nil {
 				return fmt.Errorf("%s: %w", op, err)
 			}
 		} else {
-			if err := t.translateScript(textFrom, w); err != nil {
+			if err := t.translateScript(textFrom, write); err != nil {
 				return fmt.Errorf("%s: %w", op, err)
 			}
 		}

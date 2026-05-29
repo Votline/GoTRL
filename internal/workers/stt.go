@@ -36,7 +36,7 @@ func (s *Stt) Stt(write func([]byte) int) error {
 
 	defer s.log.Error("Leaved", zap.String("op", op))
 
-	if err := EstabilishConnect(&s.Worker, op); err != nil {
+	if err := EstablishConnect(&s.Worker, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	defer s.conn.Close()

@@ -6,7 +6,10 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"time"
 	"unsafe"
+
+	"gotrl/internal/utils"
 
 	"go.uber.org/zap"
 )
@@ -30,7 +33,7 @@ func NewInflector(call string, log *zap.Logger) *Inflector {
 func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 	const op = "workers.Inflector.Inflect"
 
-	if err := EstabilishConnect(&i.Worker, op); err != nil {
+	if err := EstablishConnect(&i.Worker, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	defer i.conn.Close()
@@ -53,31 +56,35 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 
 	for {
 		n := trRead(textPart)
-		if len(textPart) == 0 {
+		if n == 0 {
+			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 
 		textFrom := textPart[:n]
+		utils.TrimSpaceBytes(&textFrom)
 		if !bytes.ContainsAny(textFrom, ".?!:;") {
 			textFull = append(textFull, textFrom...)
 			i.log.Info("Got text",
 				zap.String("op", op),
-				zap.String("text", unsafe.String(unsafe.SliceData(textFrom), len(textFrom))))
+				zap.Int("text len", len(textFrom)))
 			continue
 		}
+		utils.TrimSpaceBytes(&textFull)
+
 		textFull = append(textFull, textFrom...)
 		origFull = append(origFull, textFull...)
 
-		i.log.Info("Got text",
+		i.log.Info("Got full text",
 			zap.String("op", op),
-			zap.String("text", unsafe.String(unsafe.SliceData(textFull), len(textFull))),
-			zap.String("orig", unsafe.String(unsafe.SliceData(origFull), len(origFull))))
+			zap.Int("text", len(textFull)),
+			zap.Int("orig", len(origFull)))
 
 		requestMarshal(origFull, textFull, &jsonReq)
 
 		i.log.Warn("Request",
 			zap.String("op", op),
-			zap.String("text", unsafe.String(unsafe.SliceData(jsonReq), len(jsonReq))))
+			zap.Int("text", len(jsonReq)))
 
 		if i.mode == modeCallAPI {
 			if err := i.inflectAPI(jsonReq, w); err != nil {
@@ -100,6 +107,8 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 // Used workers.repo.callAPI
 func (i *Inflector) inflectAPI(textFrom []byte, w func([]byte) int) error {
 	const op = "workers.Inflector.inflectAPI"
+
+	fmt.Println(string(textFrom))
 
 	if err := i.callAPI(textFrom, w, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)

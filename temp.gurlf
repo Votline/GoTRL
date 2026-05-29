@@ -2,8 +2,8 @@
 InputType:text
 OutputType:{ENVIRONMENT key=OutputType from=os}
 TranslationURL:ws://localhost:8080/translate
-SpeechToTextURL:ws://localhost:8080/stt
-TextToSpeechURL:ws://localhost:8080/tts
+SpeechToTextURL:
+TextToSpeechURL:
 InflectorURL:ws://localhost:8080/inflector
 ImageToTextURL:ws://localhost:8080/itt
 [\gotrl]

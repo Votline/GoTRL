@@ -38,7 +38,7 @@ func (t *Tts) TTS(read func([]byte) int) error {
 
 	defer t.log.Error("Leaved", zap.String("op", op))
 
-	if err := EstabilishConnect(&t.Worker, op); err != nil {
+	if err := EstablishConnect(&t.Worker, op); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	defer t.conn.Close()
@@ -64,6 +64,10 @@ func (t *Tts) TTS(read func([]byte) int) error {
 				break
 			}
 			textFull := textBuf[:n]
+
+			t.log.Info("Got text",
+				zap.String("op", op),
+				zap.Int("text len", len(textFull)))
 
 			if t.mode == modeCallAPI {
 				if err := t.ttsAPI(textFull, audioBuf); err != nil {

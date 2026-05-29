@@ -1,26 +1,22 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/signal"
-	"slices"
 	"syscall"
 	"time"
 	"unsafe"
 
-	"gotrl/internal/parser"
 	rb "gotrl/internal/ringbuffer"
+	"gotrl/internal/utils"
 	"gotrl/internal/workers"
 
 	gd "github.com/Votline/Go-audio"
-	gurlf "github.com/Votline/Gurlf"
-	gscan "github.com/Votline/Gurlf/pkg/scanner"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 const helpMsg = `
@@ -63,6 +59,15 @@ const (
 	appName     = "PipeWire ALSA [main]"
 )
 
+func findFirst(bufs []*rb.RingBuffer[byte], ids ...int) (*rb.RingBuffer[byte], int) {
+	for _, id := range ids {
+		if bufs[id] != nil {
+			return bufs[id], id
+		}
+	}
+	return bufs[workers.BufStdin], workers.BufStdin
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Printf("Invalid args.\n%s", helpMsg)
@@ -74,45 +79,21 @@ func main() {
 	}
 
 	args := os.Args[1:]
-	ud, dbg, err := handleCfgPath(args)
+	ud, dbg, err := utils.HandleCfgPath(args)
 	if err != nil {
 		fmt.Printf("Invalid args. %s\n", err.Error())
 		return
 	}
 
-	log := initLog(dbg)
+	log := utils.InitLog(dbg)
 	defer log.Sync()
 
 	log.Debug("Args",
 		zap.Strings("args", args),
 		zap.Any("user_data", ud))
 
-	trBuf := rb.NewRB[byte](512)
-	infBuf := rb.NewRB[byte](512)
-
-	stdin := func(buf []byte) int {
-		n, err := os.Stdin.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				return 0
-			}
-			fmt.Printf("Read error: %s\n", err.Error())
-			return 0
-		}
-		return n
-	}
-
-	stdout := func(buf []byte) int {
-		n, err := os.Stdout.Write(buf)
-		if err != nil {
-			fmt.Printf("Write error: %s\n", err.Error())
-			return 0
-		}
-		return n
-	}
-
 	acl, err := gd.InitAudioClient(
-		workers.BufferSize, 0, 0, workers.BufferSize,
+		workers.BufferAudioSize, 0, 0, workers.BufferAudioSize,
 		workers.Channels, workers.SampleRate, workers.SampleRate, workers.Duration,
 		false, nil,
 	)
@@ -132,11 +113,37 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	sttBuf := rb.NewRB[byte](workers.BufferSize)
+	lastOut := -1
+	buffers := make([]*rb.RingBuffer[byte], workers.BufMax)
+	if ud.IttURL != "" {
+		buffers[workers.BufItt] = rb.NewRB[byte](workers.BufferTextSize)
+		lastOut = workers.BufItt
+	}
+	if ud.SttURL != "" {
+		buffers[workers.BufStt] = rb.NewRB[byte](workers.BufferAudioSize)
+		lastOut = workers.BufStt
+	}
+	if ud.TrlURL != "" {
+		buffers[workers.BufTrl] = rb.NewRB[byte](workers.BufferTextSize)
+		buffers[workers.BufTrlOrig] = rb.NewRB[byte](workers.BufferTextSize)
+		lastOut = workers.BufTrl
+	}
+	if ud.InfURL != "" {
+		buffers[workers.BufInf] = rb.NewRB[byte](workers.BufferTextSize)
+		lastOut = workers.BufInf
+	}
+	if ud.TtsURL != "" {
+		buffers[workers.BufTts] = rb.NewRB[byte](workers.BufferAudioSize)
+		lastOut = workers.BufTts
+	}
+	buffers[workers.BufStdin] = rb.NewRB[byte](workers.BufferTextSize)
+
+	nopFunc := func(buf []byte) int {
+		return 0
+	}
+
 	if ud.SttURL != "" {
 		go func() {
-			stt := workers.NewStt(ud.SttURL, acl, log)
-
 			go func() {
 				time.Sleep(2 * time.Second)
 
@@ -144,7 +151,7 @@ func main() {
 				if err != nil {
 					log.Fatal("Failed to get default sink", zap.Error(err))
 				}
-				trimSpaceBytes(&defSink)
+				utils.TrimSpaceBytes(&defSink)
 				defSinkStr := unsafe.String(unsafe.SliceData(defSink), len(defSink))
 
 				if err := acl.IsolateInput(sttSinkName, appName); err != nil {
@@ -171,7 +178,12 @@ func main() {
 					zap.String("str", defSinkStr))
 			}()
 
-			if err := stt.Stt(sttBuf.WriteSimple); err != nil {
+			log.Debug("Add STT worker",
+				zap.Int("Writer", workers.BufStt))
+
+			stt := workers.NewStt(ud.SttURL, acl, log)
+			buf := buffers[workers.BufStt]
+			if err := stt.Stt(buf.WriteSimple); err != nil {
 				fmt.Printf("Stt error: %s\n", err.Error())
 				return
 			}
@@ -179,25 +191,48 @@ func main() {
 	}
 
 	if ud.TrlURL != "" {
+		trl := workers.NewTranslator(ud.TrlURL, log)
+
+		prev, id := findFirst(buffers, workers.BufStt, workers.BufItt)
+		next := buffers[workers.BufTrl]
+
+		idOrig := -1
+		origWriteFunc := nopFunc
+		if buffers[workers.BufTrlOrig] != nil {
+			origWriteFunc = buffers[workers.BufTrlOrig].WriteSimple
+			idOrig = workers.BufTrlOrig
+		}
+
+		log.Debug("Add Translator worker",
+			zap.Int("Reader", id),
+			zap.Int("Writer", workers.BufTrl),
+			zap.Int("Writer orig", idOrig))
+
 		go func() {
-			trl := workers.NewTranslator(ud.TrlURL, log)
-			if err := trl.Translate(stdin, trBuf.WriteSimple); err != nil {
+			if err := trl.Translate(prev.ReadSimple, next.WriteSimple, origWriteFunc); err != nil {
 				fmt.Printf("Translate error: %s\n", err.Error())
 				return
 			}
 		}()
 	}
 
-	infBufWrite := func(buf []byte) int {
-		n := infBuf.WriteSimple(buf)
-		stdout(buf)
-		return n
-	}
-
 	if ud.InfURL != "" {
 		go func() {
 			infl := workers.NewInflector(ud.InfURL, log)
-			if err := infl.Inflect(stdin, trBuf.ReadSimple, infBufWrite); err != nil {
+
+			prev, id := findFirst(buffers, workers.BufTrl, workers.BufStt, workers.BufItt)
+			next := buffers[workers.BufInf]
+
+			log.Debug("Add Inflect worker",
+				zap.Int("Reader", id),
+				zap.Int("Writer", workers.BufInf))
+
+			origReadFunc := nopFunc
+			if buffers[workers.BufTrlOrig] != nil {
+				origReadFunc = buffers[workers.BufTrlOrig].ReadSimple
+			}
+
+			if err := infl.Inflect(origReadFunc, prev.ReadSimple, next.WriteSimple); err != nil {
 				fmt.Printf("Inflect error: %s\n", err.Error())
 				return
 			}
@@ -207,7 +242,13 @@ func main() {
 	if ud.TtsURL != "" {
 		go func() {
 			tts := workers.NewTTS(ud.TtsURL, acl, log)
-			if err := tts.TTS(sttBuf.ReadSimple); err != nil {
+
+			prev, id := findFirst(buffers, workers.BufInf, workers.BufTrl, workers.BufItt, workers.BufStt)
+
+			log.Debug("Add TTS worker",
+				zap.Int("Reader", id))
+
+			if err := tts.TTS(prev.ReadSimple); err != nil {
 				fmt.Printf("TTS error: %s\n", err.Error())
 				return
 			}
@@ -217,123 +258,55 @@ func main() {
 	if ud.IttURL != "" {
 		go func() {
 			itt := workers.NewITT(ud.IttURL, log)
-			if err := itt.ITT(stdout); err != nil {
+
+			next := buffers[workers.BufItt]
+			id := workers.BufItt
+
+			log.Debug("Add ITT worker",
+				zap.Int("Writer", id))
+
+			if err := itt.ITT(next.WriteSimple); err != nil {
 				fmt.Printf("ITT error: %s\n", err.Error())
 				return
 			}
 		}()
 	}
 
+	if ud.IttURL == "" {
+		go func() {
+			scanner := bufio.NewScanner(os.Stdin)
+			for scanner.Scan() {
+				data := scanner.Bytes()
+				if len(data) == 0 {
+					continue
+				}
+				buffers[workers.BufStdin].WriteSimple(data)
+
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err := scanner.Err(); err != nil {
+				log.Fatal("Stdin", zap.Error(err))
+			}
+		}()
+	}
+
+	go func() {
+		buf := make([]byte, workers.BufferTextSize)
+		for {
+			n := buffers[lastOut].ReadSimple(buf)
+			if n == 0 {
+				continue
+			}
+			temp := buf[:n]
+			strData := unsafe.String(unsafe.SliceData(temp), len(temp))
+			fmt.Println(strData)
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
 	<-ctx.Done()
 	if err := acl.RemoveMonitor("STT_only"); err != nil {
 		log.Fatal("RemoveMonitor", zap.Error(err))
 	}
 	log.Info("Exit")
-}
-
-func parseArgs(args []string) (*parser.UserData, error) {
-	const op = "main.parseArgs"
-
-	ud := parser.UserData{}
-
-	for _, arg := range args {
-		argByte := unsafe.Slice(unsafe.StringData(arg), len(arg))
-		parser.RangeByByte(argByte, ' ', func(key, val []byte) {
-			keyStr := unsafe.String(unsafe.SliceData(key), len(key))
-			valStr := unsafe.String(unsafe.SliceData(val), len(val))
-			switch keyStr {
-			case "-it", "--inputType":
-				ud.InpType = valStr
-			case "-ot", "--outputType":
-				ud.OutType = valStr
-			case "-trl", "--translationURL":
-				ud.TrlURL = valStr
-			case "-stt", "--speechToTextURL":
-				ud.SttURL = valStr
-			case "-tts", "--textToSpeechURL":
-				ud.TtsURL = valStr
-			}
-		})
-	}
-
-	if ud.InpType == "" || ud.OutType == "" || ud.TrlURL == "" || ud.SttURL == "" || ud.TtsURL == "" {
-		return nil, fmt.Errorf("%s: invalid args", op)
-	}
-
-	return &ud, nil
-}
-
-func handleCfgPath(args []string) (*parser.UserData, bool, error) {
-	const op = "main.handleCfgPath"
-
-	dbg := slices.Contains(args, "-d") || slices.Contains(args, "--debug")
-
-	if len(args) >= 5 {
-		ud, err := parseArgs(args)
-		if err != nil {
-			return nil, dbg, fmt.Errorf("%s: parse args: %w", op, err)
-		}
-		return ud, dbg, nil
-	}
-
-	var gData []gscan.Data
-	var err error
-	arg := args[0]
-
-	if _, err := os.Stat(arg); err == nil {
-		gData, err = gurlf.ScanFile(arg)
-		if err != nil {
-			return nil, dbg, fmt.Errorf("%s: scan file: %w", op, err)
-		}
-	} else if os.IsNotExist(err) {
-		argBytes := unsafe.Slice(unsafe.StringData(arg), len(arg))
-		gData, err = gurlf.Scan(argBytes)
-		if err != nil {
-			return nil, dbg, fmt.Errorf("%s: scan string: %w", op, err)
-		}
-	}
-
-	ud, err := parser.Parse(gData)
-	if err != nil {
-		return nil, dbg, fmt.Errorf("%s: parse: %w", op, err)
-	}
-	return ud, dbg, nil
-}
-
-func initLog(dbg bool) *zap.Logger {
-	cfg := zap.NewDevelopmentConfig()
-	cfg.Encoding = "console"
-	cfg.EncoderConfig.TimeKey = ""
-	cfg.DisableStacktrace = true
-	cfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	cfg.EncoderConfig.ConsoleSeparator = " | "
-	cfg.Level.SetLevel(zap.ErrorLevel)
-
-	if dbg {
-		cfg.Level.SetLevel(zap.DebugLevel)
-	}
-	log, _ := cfg.Build()
-
-	return log
-}
-
-// trimSpaceBytes trims spaces in slice by pointer
-func trimSpaceBytes(b *[]byte) {
-	tempB := *b
-
-	start := 0
-	end := len(tempB) - 1
-	for start < end && isSpace(tempB[start]) {
-		start++
-	}
-	for end > start && isSpace(tempB[end]) {
-		end--
-	}
-
-	*b = tempB[start : end+1]
-}
-
-// isSpace is a helper function to check if a byte is a space.
-func isSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }

@@ -16,6 +16,17 @@ import (
 )
 
 const (
+	// Buffers is a number of buffers
+	// Buffers used for communication between workers
+	BufStdin   int = iota
+	BufStt         // 1
+	BufTts         // 2
+	BufItt         // 3
+	BufInf         // 4
+	BufTrl         // 5
+	BufTrlOrig     // 6
+	BufMax         // 7
+
 	// modeCallAPI is flag to use API
 	modeCallAPI = -1
 
@@ -51,8 +62,11 @@ const (
 	// Duration is a duration for collect audio
 	Duration = 120
 
-	// BufferSize is a buffer size for record audio in stt
-	BufferSize = 8192
+	// BufferAudioSize is a buffer size for record audio in stt
+	BufferAudioSize = 8192
+
+	// BufferSize is a buffer size for inflector, stt and translator
+	BufferTextSize = 512
 
 	// samplePerPacket is a number of samples per packet
 	samplePerPacket = ((SampleRate * Duration) / 1000) * Channels
@@ -112,17 +126,17 @@ func NewWorker(call string, log *zap.Logger) Worker {
 	return w
 }
 
-// EstabilishConnect establishes websocket connection to API
+// EstablishConnect establishes websocket connection to API
 // And save it to Worker 'conn' field
-func EstabilishConnect(w *Worker, op string) error {
-	w.log.Info("Estabilish connect",
+func EstablishConnect(w *Worker, op string) error {
+	w.log.Info("Establish connect",
 		zap.String("op", op),
 		zap.String("call", w.call[0]))
 
 	if w.mode == modeCallAPI {
 		conn, _, err := websocket.DefaultDialer.Dial(w.call[0], nil)
 		if err != nil {
-			return fmt.Errorf("%s: estabilished connection with %q: %w",
+			return fmt.Errorf("%s: established connection with %q: %w",
 				op, w.call[0], err)
 		}
 		w.conn = conn
