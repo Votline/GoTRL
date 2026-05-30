@@ -5,6 +5,6 @@ TranslationURL:ws://localhost:8080/translate
 SpeechToTextURL:
 TextToSpeechURL:
 InflectorURL:ws://localhost:8080/inflector
-ImageToTextURL:ws://localhost:8080/itt
+ImageToTextURL:
 [\gotrl]
 

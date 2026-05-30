@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -50,57 +51,58 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 	origFull := (*origFullPtr)[:0]
 	defer textPool.Put(origFullPtr)
 
+	origPartPtr := textPool.Get().(*[]byte)
+	origPart := (*origPartPtr)[:defaultTextLength]
+	defer textPool.Put(origPartPtr)
+
 	jsonReqPtr := textPool.Get().(*[]byte)
 	jsonReq := (*jsonReqPtr)[:0]
 	defer textPool.Put(jsonReqPtr)
 
-	for {
-		n := trRead(textPart)
-		if n == 0 {
-			time.Sleep(10 * time.Millisecond)
-			continue
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if len(textFull) > 0 {
+				i.doInflect(&origFull, &textFull, &jsonReq, w)
+			}
 		}
+	})
 
-		textFrom := textPart[:n]
-		utils.TrimSpaceBytes(&textFrom)
-		if !bytes.ContainsAny(textFrom, ".?!:;") {
+	wg.Go(func() {
+		for {
+			n := trRead(textPart)
+			if n == 0 {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			textFrom := textPart[:n]
+			utils.TrimSpaceBytes(&textFrom)
+
+			nOrig := origRead(origPart)
+			if nOrig > 0 {
+				origTemp := origPart[:nOrig]
+				utils.TrimSpaceBytes(&origTemp)
+				origFull = append(origFull, origTemp...)
+			}
+
 			textFull = append(textFull, textFrom...)
-			i.log.Info("Got text",
-				zap.String("op", op),
-				zap.Int("text len", len(textFrom)))
-			continue
-		}
-		utils.TrimSpaceBytes(&textFull)
 
-		textFull = append(textFull, textFrom...)
-		origFull = append(origFull, textFull...)
+			if bytes.ContainsAny(textFrom, ".?!:;") {
+				i.log.Info("Got full text",
+					zap.String("op", op),
+					zap.Int("text", len(textFull)),
+					zap.Int("orig", len(origFull)))
 
-		i.log.Info("Got full text",
-			zap.String("op", op),
-			zap.Int("text", len(textFull)),
-			zap.Int("orig", len(origFull)))
-
-		requestMarshal(origFull, textFull, &jsonReq)
-
-		i.log.Warn("Request",
-			zap.String("op", op),
-			zap.Int("text", len(jsonReq)))
-
-		if i.mode == modeCallAPI {
-			if err := i.inflectAPI(jsonReq, w); err != nil {
-				return fmt.Errorf("%s: %w", op, err)
-			}
-		} else {
-			if err := i.inflectScript(jsonReq, w); err != nil {
-				return fmt.Errorf("%s: %w", op, err)
+				i.doInflect(&origFull, &textFull, &jsonReq, w)
 			}
 		}
+	})
 
-		// reset
-		textFull = textFull[:0]
-		jsonReq = jsonReq[:0]
-		origFull = origFull[:0]
-	}
+	wg.Wait()
+	return nil
 }
 
 // inflectAPI inflects the 'textFrom' using API
@@ -147,4 +149,33 @@ func requestMarshal(orig, trln []byte, buf *[]byte) {
 	jsonData = append(jsonData, jsonEnd...)
 
 	*buf = jsonData
+}
+
+func (i *Inflector) doInflect(origFull, textFull, jsonReq *[]byte, w func([]byte) int) error {
+	const op = "workers.Inflector.doInflect"
+	if len(*textFull) == 0 {
+		return nil
+	}
+
+	utils.TrimSpaceBytes(textFull)
+	utils.TrimSpaceBytes(origFull)
+
+	requestMarshal(*origFull, *textFull, jsonReq)
+
+	var err error
+	if i.mode == modeCallAPI {
+		err = i.inflectAPI(*jsonReq, w)
+	} else {
+		err = i.inflectScript(*jsonReq, w)
+	}
+
+	*textFull = (*textFull)[:0]
+	*origFull = (*origFull)[:0]
+	*jsonReq = (*jsonReq)[:0]
+
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
 }
