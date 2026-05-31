@@ -23,9 +23,9 @@ const helpMsg = `
 Supported offline AIs.
 
 Usage (choose your way):
-    1. From file:   gotrl <config_path> <source> <args>
-    2. From string: gotrl "[config]...[/config]" <source> <args>
-    3. From flags:  gotrl -it=<type> -ot=<type> -trl=<url> <source> <args>
+    1. From file:   gotrl <config_path> <args>
+    2. From string: gotrl "[config]...[/config]" <args>
+    3. From flags:  gotrl -it=<type> -ot=<type> -trl=<url> <args>
 
 Settings (Flags):
     -it    Input Type:  'text' (default), 'file', 'image', 'stream'
@@ -34,24 +34,20 @@ Settings (Flags):
     -stt   STT:         URL for Speech-to-Text AI
     -tts   TTS:         URL for Text-to-Speech AI
 
-Source:
-    <text>              Plain text to translate
-    <file_path>         Path to file (if input type is 'file')
-
 Args:
     '-d' or '--debug'   Enable debug mode
 
 Examples:
-    gotrl ./cfg.gurlf "Hello world"
-    gotrl -it=file -ot=audio ./notes.txt
-    gotrl "[config]...[/config]" "Check this"
+    gotrl cfg.gurlf
+		gotrl -trl=https://localhost:8080/trl
+    gotrl "[config]...[/config]" -inf=https://localhost:8080/inflector
 
 Config fields (case sensitive):
-	InputType
-	OutputType
-	TranslationURL
+	TranslatorURL
 	SpeechToTextURL
 	TextToSpeechURL
+	InflectorURL
+	ImageToTextURL
 `
 
 const (

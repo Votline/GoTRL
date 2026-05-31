@@ -17,13 +17,11 @@ var macros = [][]byte{
 }
 
 type UserData struct {
-	InpType string `gurlf:"InputType"`
-	OutType string `gurlf:"OutputType"`
-	TrlURL  string `gurlf:"TranslationURL"`
-	SttURL  string `gurlf:"SpeechToTextURL"`
-	TtsURL  string `gurlf:"TextToSpeechURL"`
-	InfURL  string `gurlf:"InflectorURL"`
-	IttURL  string `gurlf:"ImageToTextURL"`
+	TrlURL string `gurlf:"TranslatorURL"`
+	SttURL string `gurlf:"SpeechToTextURL"`
+	TtsURL string `gurlf:"TextToSpeechURL"`
+	InfURL string `gurlf:"InflectorURL"`
+	IttURL string `gurlf:"ImageToTextURL"`
 }
 
 // Parse config file and return UserData.

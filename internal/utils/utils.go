@@ -26,21 +26,21 @@ func parseArgs(args []string) (*parser.UserData, error) {
 			keyStr := unsafe.String(unsafe.SliceData(key), len(key))
 			valStr := unsafe.String(unsafe.SliceData(val), len(val))
 			switch keyStr {
-			case "-it", "--inputType":
-				ud.InpType = valStr
-			case "-ot", "--outputType":
-				ud.OutType = valStr
 			case "-trl", "--translationURL":
 				ud.TrlURL = valStr
 			case "-stt", "--speechToTextURL":
 				ud.SttURL = valStr
 			case "-tts", "--textToSpeechURL":
 				ud.TtsURL = valStr
+			case "-inf", "--inflectionURL":
+				ud.InfURL = valStr
+			case "-itt", "--imageToTextURL":
+				ud.IttURL = valStr
 			}
 		})
 	}
 
-	if ud.InpType == "" || ud.OutType == "" || ud.TrlURL == "" || ud.SttURL == "" || ud.TtsURL == "" {
+	if ud.TrlURL == "" && ud.SttURL == "" && ud.TtsURL == "" && ud.InfURL == "" && ud.IttURL == "" {
 		return nil, fmt.Errorf("%s: invalid args", op)
 	}
 
