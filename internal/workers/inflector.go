@@ -59,14 +59,17 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 	jsonReq := (*jsonReqPtr)[:0]
 	defer textPool.Put(jsonReqPtr)
 
+	var mu sync.Mutex
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
+			mu.Lock()
 			if len(textFull) > 0 {
 				i.doInflect(&origFull, &textFull, &jsonReq, w)
 			}
+			mu.Unlock()
 		}
 	})
 
@@ -96,12 +99,45 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 					zap.Int("text", len(textFull)),
 					zap.Int("orig", len(origFull)))
 
+				mu.Lock()
 				i.doInflect(&origFull, &textFull, &jsonReq, w)
+				mu.Unlock()
 			}
 		}
 	})
 
 	wg.Wait()
+	return nil
+}
+
+// doInflect sends inflection request to API
+// Writes result to writer and clears buffers
+func (i *Inflector) doInflect(origFull, textFull, jsonReq *[]byte, w func([]byte) int) error {
+	const op = "workers.Inflector.doInflect"
+	if len(*textFull) == 0 {
+		return nil
+	}
+
+	utils.TrimSpaceBytes(textFull)
+	utils.TrimSpaceBytes(origFull)
+
+	requestMarshal(*origFull, *textFull, jsonReq)
+
+	var err error
+	if i.mode == modeCallAPI {
+		err = i.inflectAPI(*jsonReq, w)
+	} else {
+		err = i.inflectScript(*jsonReq, w)
+	}
+
+	*textFull = (*textFull)[:0]
+	*origFull = (*origFull)[:0]
+	*jsonReq = (*jsonReq)[:0]
+
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
 	return nil
 }
 
@@ -149,33 +185,4 @@ func requestMarshal(orig, trln []byte, buf *[]byte) {
 	jsonData = append(jsonData, jsonEnd...)
 
 	*buf = jsonData
-}
-
-func (i *Inflector) doInflect(origFull, textFull, jsonReq *[]byte, w func([]byte) int) error {
-	const op = "workers.Inflector.doInflect"
-	if len(*textFull) == 0 {
-		return nil
-	}
-
-	utils.TrimSpaceBytes(textFull)
-	utils.TrimSpaceBytes(origFull)
-
-	requestMarshal(*origFull, *textFull, jsonReq)
-
-	var err error
-	if i.mode == modeCallAPI {
-		err = i.inflectAPI(*jsonReq, w)
-	} else {
-		err = i.inflectScript(*jsonReq, w)
-	}
-
-	*textFull = (*textFull)[:0]
-	*origFull = (*origFull)[:0]
-	*jsonReq = (*jsonReq)[:0]
-
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	return nil
 }
