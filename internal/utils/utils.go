@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"unsafe"
+	"strings"
 
 	"gotrl/internal/parser"
 
@@ -17,31 +17,35 @@ import (
 
 func parseArgs(args []string) (*parser.UserData, error) {
 	const op = "main.parseArgs"
-
 	ud := parser.UserData{}
 
 	for _, arg := range args {
-		argByte := unsafe.Slice(unsafe.StringData(arg), len(arg))
-		parser.RangeByByte(argByte, ' ', func(key, val []byte) {
-			keyStr := unsafe.String(unsafe.SliceData(key), len(key))
-			valStr := unsafe.String(unsafe.SliceData(val), len(val))
-			switch keyStr {
-			case "-trl", "--translationURL":
-				ud.TrlURL = valStr
-			case "-stt", "--speechToTextURL":
-				ud.SttURL = valStr
-			case "-tts", "--textToSpeechURL":
-				ud.TtsURL = valStr
-			case "-inf", "--inflectionURL":
-				ud.InfURL = valStr
-			case "-itt", "--imageToTextURL":
-				ud.IttURL = valStr
-			}
-		})
+		if arg == "-ui" || arg == "--ui" {
+			ud.Mode = parser.UImode
+			continue
+		}
+
+		key, val, found := strings.Cut(arg, "=")
+		if !found {
+			continue
+		}
+
+		switch key {
+		case "-trl", "--translationURL":
+			ud.TrlURL = val
+		case "-stt", "--speechToTextURL":
+			ud.SttURL = val
+		case "-tts", "--textToSpeechURL":
+			ud.TtsURL = val
+		case "-inf", "--inflectionURL":
+			ud.InfURL = val
+		case "-itt", "--imageToTextURL":
+			ud.IttURL = val
+		}
 	}
 
-	if ud.TrlURL == "" && ud.SttURL == "" && ud.TtsURL == "" && ud.InfURL == "" && ud.IttURL == "" {
-		return nil, fmt.Errorf("%s: invalid args", op)
+	if ud.Mode != parser.UImode && ud.TrlURL == "" && ud.SttURL == "" && ud.TtsURL == "" && ud.InfURL == "" && ud.IttURL == "" {
+		return nil, fmt.Errorf("%s: invalid args (no URLs provided)", op)
 	}
 
 	return &ud, nil
@@ -51,36 +55,36 @@ func HandleCfgPath(args []string) (*parser.UserData, bool, error) {
 	const op = "main.handleCfgPath"
 
 	dbg := slices.Contains(args, "-d") || slices.Contains(args, "--debug")
+	uiMode := slices.Contains(args, "-ui") || slices.Contains(args, "--ui")
+
+	var ud *parser.UserData
+	var err error
 
 	if len(args) >= 5 {
-		ud, err := parseArgs(args)
-		if err != nil {
-			return nil, dbg, fmt.Errorf("%s: parse args: %w", op, err)
-		}
-		return ud, dbg, nil
-	}
+		ud, err = parseArgs(args)
+	} else if len(args) > 0 {
+		arg := args[0]
+		var gData []gscan.Data
 
-	var gData []gscan.Data
-	var err error
-	arg := args[0]
-
-	if _, err := os.Stat(arg); err == nil {
-		gData, err = gurlf.ScanFile(arg)
-		if err != nil {
-			return nil, dbg, fmt.Errorf("%s: scan file: %w", op, err)
+		if _, errStat := os.Stat(arg); errStat == nil {
+			gData, err = gurlf.ScanFile(arg)
+		} else {
+			gData, err = gurlf.Scan([]byte(arg))
 		}
-	} else if os.IsNotExist(err) {
-		argBytes := unsafe.Slice(unsafe.StringData(arg), len(arg))
-		gData, err = gurlf.Scan(argBytes)
-		if err != nil {
-			return nil, dbg, fmt.Errorf("%s: scan string: %w", op, err)
+
+		if err == nil {
+			ud, err = parser.Parse(gData)
 		}
 	}
 
-	ud, err := parser.Parse(gData)
 	if err != nil {
-		return nil, dbg, fmt.Errorf("%s: parse: %w", op, err)
+		return nil, dbg, fmt.Errorf("%s: %w", op, err)
 	}
+
+	if uiMode && ud != nil {
+		ud.Mode = parser.UImode
+	}
+
 	return ud, dbg, nil
 }
 

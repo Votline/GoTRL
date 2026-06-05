@@ -16,12 +16,15 @@ var macros = [][]byte{
 	[]byte("ENVIRONMENT"),
 }
 
+const UImode = -2
+
 type UserData struct {
 	TrlURL string `gurlf:"TranslatorURL"`
 	SttURL string `gurlf:"SpeechToTextURL"`
 	TtsURL string `gurlf:"TextToSpeechURL"`
 	InfURL string `gurlf:"InflectorURL"`
 	IttURL string `gurlf:"ImageToTextURL"`
+	Mode   int
 }
 
 // Parse config file and return UserData.

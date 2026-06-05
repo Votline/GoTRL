@@ -7,15 +7,22 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"gotrl/internal/parser"
+	"gotrl/internal/render"
 	rb "gotrl/internal/ringbuffer"
+	"gotrl/internal/ui"
 	"gotrl/internal/utils"
 	"gotrl/internal/workers"
 
 	gd "github.com/Votline/Go-audio"
+	"github.com/go-gl/gl/v4.1-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
 	"go.uber.org/zap"
 )
 
@@ -286,6 +293,7 @@ func main() {
 		}()
 	}
 
+	uiBuf := rb.NewRB[byte](workers.BufferTextSize)
 	go func() {
 		buf := make([]byte, workers.BufferTextSize)
 		for {
@@ -294,15 +302,88 @@ func main() {
 				continue
 			}
 			temp := buf[:n]
+			utils.TrimSpaceBytes(&temp)
 			strData := unsafe.String(unsafe.SliceData(temp), len(temp))
 			fmt.Println(strData)
+			if ud.Mode == parser.UImode {
+				uiBuf.WriteSimple(temp)
+			}
 			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
-	<-ctx.Done()
-	if err := acl.RemoveMonitor("STT_only"); err != nil {
-		log.Fatal("RemoveMonitor", zap.Error(err))
+	if ud.Mode == parser.UImode {
+		uiStart(uiBuf, log)
+	} else {
+		<-ctx.Done()
+		if err := acl.RemoveMonitor("STT_only"); err != nil {
+			log.Fatal("RemoveMonitor", zap.Error(err))
+		}
+		log.Info("Exit")
 	}
-	log.Info("Exit")
+}
+
+func init() {
+	runtime.LockOSThread()
+}
+
+func uiStart(com *rb.RingBuffer[byte], log *zap.Logger) {
+	const op = "main.uiStart"
+
+	if err := glfw.Init(); err != nil {
+		log.Fatal("Init glfw",
+			zap.String("op", op),
+			zap.Error(err))
+	}
+	defer glfw.Terminate()
+
+	if err := gl.Init(); err != nil {
+		log.Fatal("Init gl",
+			zap.String("op", op),
+			zap.Error(err))
+	}
+
+	win, err := ui.PrimaryWindow()
+	if err != nil {
+		log.Fatal("PrimaryWindow",
+			zap.String("op", op),
+			zap.Error(err))
+	}
+
+	win.MakeContextCurrent()
+	win.SetAttrib(glfw.Floating, glfw.True)
+	glfw.SwapInterval(1)
+	glfw.WaitEventsTimeout(0.1)
+
+	pg, unfrs := render.Setup()
+	defer gl.DeleteProgram(pg)
+
+	view := ui.CreateHomeView(win, pg, unfrs)
+
+	buf := make([]byte, workers.BufferTextSize)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			n := com.ReadSimple(buf)
+			if n == 0 {
+				continue
+			}
+			msg := unsafe.String(unsafe.SliceData(buf), n)
+			if msg != "quit" {
+				view.Update(msg)
+			} else {
+				return
+			}
+		}
+	})
+
+	gl.ClearColor(0.0, 0.0, 0.0, 0.7)
+	for !win.ShouldClose() {
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+
+		view.Render()
+
+		glfw.PollEvents()
+		win.SwapBuffers()
+	}
 }
