@@ -156,16 +156,21 @@ func (w *Worker) callAPI(textFrom []byte, write func([]byte) int, op string) err
 		return fmt.Errorf("%s: write message: %w", op, err)
 	}
 
-	_, message, err := w.conn.ReadMessage()
-	if err != nil {
-		return fmt.Errorf("%s: read message: %w", op, err)
+	for {
+		_, message, err := w.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				break
+			}
+			return fmt.Errorf("%s: read message: %w", op, err)
+		}
+
+		w.log.Info("Got response from API",
+			zap.String("op", op),
+			zap.Int("response length", len(message)))
+
+		write(message)
 	}
-
-	w.log.Info("Got response from API",
-		zap.String("op", op),
-		zap.Int("response length", len(message)))
-
-	write(message)
 
 	return nil
 }
@@ -206,21 +211,24 @@ func (w *Worker) callScript(textFrom []byte, write func([]byte) int, op string) 
 	resFull := (*resFullPtr)[:defaultTextLength]
 	defer textPool.Put(resFullPtr)
 
-	n, err := io.ReadFull(stdout, resFull)
-	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
-		return fmt.Errorf("%s: stdout read: %w", op, err)
+	for {
+		n, err := stdout.Read(resFull)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("%s: stdout read: %w", op, err)
+		}
+		if n > 0 {
+			write(resFull[:n])
+		}
+
+		res := unsafe.String(unsafe.SliceData(resFull), n)
+
+		w.log.Info("Got text from script",
+			zap.String("op", op),
+			zap.String("text", res))
 	}
-	res := resFull[:n]
-
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("%s: script wait: %w", op, err)
-	}
-
-	write(res)
-
-	w.log.Info("Got text from script",
-		zap.String("op", op),
-		zap.String("text", unsafe.String(unsafe.SliceData(res), len(res))))
 
 	return nil
 }
