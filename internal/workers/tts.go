@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	rb "gotrl/internal/ringbuffer"
 
@@ -61,7 +62,8 @@ func (t *Tts) TTS(read func([]byte) int) error {
 		for {
 			n := read(textBuf)
 			if n == 0 {
-				break
+				time.Sleep(10 * time.Millisecond)
+				continue
 			}
 			textFull := textBuf[:n]
 
@@ -96,6 +98,7 @@ func (t *Tts) TTS(read func([]byte) int) error {
 	}
 }
 
+// writeWrap resample audio, split to chunks and write to writer
 func (t *Tts) writeWrap(buf []byte, wr *rb.RingBuffer[byte]) int {
 	dataStart := 0
 	idx := bytes.Index(buf, []byte("data")) // WAV header
@@ -166,7 +169,7 @@ func (t *Tts) ttsAPI(textFrom []byte, wr *rb.RingBuffer[byte]) error {
 		return t.writeWrap(buf, wr)
 	}
 
-	if err := t.callAPI(textFrom, write, op); err != nil {
+	if err := t.callAPI(textFrom, write, op, false); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 

@@ -68,7 +68,7 @@ func (t *Translator) Translate(read, write, origWrite func([]byte) int) error {
 func (t *Translator) translateAPI(textFrom []byte, w func([]byte) int) error {
 	const op = "workers.Translator.translateAPI"
 
-	if err := t.callAPI(textFrom, w, op); err != nil {
+	if err := t.callAPI(textFrom, w, op, false); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 

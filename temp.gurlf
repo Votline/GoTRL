@@ -1,8 +1,8 @@
 [gotrl]
-TranslatorURL:ws://localhost:8080/translate
+TranslatorURL:
 SpeechToTextURL:
 TextToSpeechURL:
-InflectorURL:ws://localhost:8080/inflector
-ImageToTextURL:
+InflectorURL:
+ImageToTextURL:ws://localhost:8080/itt
 [\gotrl]
 

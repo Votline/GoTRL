@@ -273,9 +273,7 @@ func main() {
 				return
 			}
 		}()
-	}
-
-	if ud.IttURL == "" {
+	} else {
 		go func() {
 			scanner := bufio.NewScanner(os.Stdin)
 			for scanner.Scan() {
@@ -299,6 +297,8 @@ func main() {
 		for {
 			n := buffers[lastOut].ReadSimple(buf)
 			if n == 0 {
+				time.Sleep(10 * time.Millisecond)
+				runtime.Gosched()
 				continue
 			}
 			temp := buf[:n]
@@ -308,7 +308,6 @@ func main() {
 			if ud.Mode == parser.UImode {
 				uiBuf.WriteSimple(temp)
 			}
-			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 

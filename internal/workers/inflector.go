@@ -4,6 +4,7 @@ package workers
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -59,22 +60,41 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 	jsonReq := (*jsonReqPtr)[:0]
 	defer textPool.Put(jsonReqPtr)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var mu sync.Mutex
-	var wg sync.WaitGroup
-	wg.Go(func() {
+	go func() {
+		defer cancel()
+
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
+			if ctx.Err() != nil {
+				return
+			}
+
 			mu.Lock()
 			if len(textFull) > 0 {
-				i.doInflect(&origFull, &textFull, &jsonReq, w)
+				if err := i.doInflect(&origFull, &textFull, &jsonReq, w); err != nil {
+					i.log.Error("Inflect error",
+						zap.String("op", op),
+						zap.Error(err))
+					mu.Unlock()
+					return
+				}
 			}
 			mu.Unlock()
 		}
-	})
+	}()
 
-	wg.Go(func() {
+	go func() {
+		defer cancel()
 		for {
+			if ctx.Err() != nil {
+				return
+			}
+
 			n := trRead(textPart)
 			if n == 0 {
 				time.Sleep(10 * time.Millisecond)
@@ -100,13 +120,21 @@ func (i *Inflector) Inflect(origRead, trRead, w func([]byte) int) error {
 					zap.Int("orig", len(origFull)))
 
 				mu.Lock()
-				i.doInflect(&origFull, &textFull, &jsonReq, w)
+				if err := i.doInflect(&origFull, &textFull, &jsonReq, w); err != nil {
+					i.log.Error("Inflect error",
+						zap.String("op", op),
+						zap.Error(err))
+					mu.Unlock()
+					return
+				}
 				mu.Unlock()
 			}
 		}
-	})
+	}()
 
-	wg.Wait()
+	<-ctx.Done()
+	i.log.Info("Inflector worker stopped",
+		zap.String("op", op))
 	return nil
 }
 
@@ -146,9 +174,7 @@ func (i *Inflector) doInflect(origFull, textFull, jsonReq *[]byte, w func([]byte
 func (i *Inflector) inflectAPI(textFrom []byte, w func([]byte) int) error {
 	const op = "workers.Inflector.inflectAPI"
 
-	fmt.Println(string(textFrom))
-
-	if err := i.callAPI(textFrom, w, op); err != nil {
+	if err := i.callAPI(textFrom, w, op, true); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 

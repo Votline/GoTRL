@@ -2,6 +2,7 @@
 package workers
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os/exec"
@@ -147,7 +148,7 @@ func EstablishConnect(w *Worker, op string) error {
 
 // callAPI calls API, send textFrom and read result via websocket
 // Write result to writer
-func (w *Worker) callAPI(textFrom []byte, write func([]byte) int, op string) error {
+func (w *Worker) callAPI(textFrom []byte, write func([]byte) int, op string, cycle bool) error {
 	w.log.Info("Call API",
 		zap.String("op", op),
 		zap.String("call", w.call[0]))
@@ -165,11 +166,20 @@ func (w *Worker) callAPI(textFrom []byte, write func([]byte) int, op string) err
 			return fmt.Errorf("%s: read message: %w", op, err)
 		}
 
+		if bytes.Equal(message, []byte(`{"done": true}`)) {
+			w.log.Info("Request done", zap.String("op", op))
+			break
+		}
+
 		w.log.Info("Got response from API",
 			zap.String("op", op),
 			zap.Int("response length", len(message)))
 
 		write(message)
+
+		if !cycle {
+			break
+		}
 	}
 
 	return nil
