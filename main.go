@@ -35,14 +35,15 @@ Usage (choose your way):
     3. From flags:  gotrl -it=<type> -ot=<type> -trl=<url> <args>
 
 Settings (Flags):
-    -it    Input Type:  'text' (default), 'file', 'image', 'stream'
-    -ot    Output Type: 'cli' (default), 'ui', 'audio'
     -trl   Translate:   URL for translation AI
     -stt   STT:         URL for Speech-to-Text AI
     -tts   TTS:         URL for Text-to-Speech AI
+		-inf   Inflect:     URL for inflection AI
+		-itt   ImageToText: URL for image-to-text AI
 
 Args:
     '-d' or '--debug'   Enable debug mode
+		'-ui' or '--ui'     Enable UI mode
 
 Examples:
     gotrl cfg.gurlf
